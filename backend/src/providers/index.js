@@ -74,12 +74,25 @@ function getPath(obj, dotPath) {
   return dotPath.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
 }
 
+// Certains fournisseurs (ex: envoi programmé) demandent la date/heure d'envoi
+// dans le corps de la requête. On les calcule à l'appel, au format attendu
+// (YYYY-MM-DD / HH:MM:SS), utilisables via {{date}} et {{time}} dans
+// providers.json.
+function nowDateTimeParts() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
+  };
+}
+
 async function sendTestSms(providerId, { to, body }) {
   const configs = loadProviderConfigs();
   const cfg = configs[providerId];
   if (!cfg) throw new Error(`Fournisseur inconnu: ${providerId}. Vérifie config/providers.json`);
 
-  const vars = { to, text: body, ...cfg.staticVars };
+  const vars = { to, text: body, ...nowDateTimeParts(), ...cfg.staticVars };
 
   if (CUSTOM_PROVIDERS[providerId]) {
     return CUSTOM_PROVIDERS[providerId].send(cfg, vars);
