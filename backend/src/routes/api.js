@@ -5,6 +5,34 @@ const { runTestForRoute } = require("./../scheduler");
 
 const router = express.Router();
 
+// Percentile "nearest rank" simple, suffisant pour du monitoring (pas besoin
+// d'interpolation linéaire ici). `values` n'a pas besoin d'être trié.
+function percentile(values, p) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
+  return sorted[Math.max(0, idx)];
+}
+
+function aggregate(rows) {
+  const delivered = rows.filter((r) => r.final_status === "delivered");
+  const latencies = delivered.map((r) => r.latency_ms).filter((v) => v != null);
+  const dlrMismatch = rows.filter((r) => r.dlr_status === "delivered" && r.final_status !== "delivered").length;
+
+  return {
+    total: rows.length,
+    delivered: delivered.length,
+    timeout: rows.filter((r) => r.final_status === "timeout").length,
+    failed: rows.filter((r) => r.final_status === "failed").length,
+    pending: rows.filter((r) => r.final_status === "pending").length,
+    deliveryRate: rows.length ? delivered.length / rows.length : null,
+    avgLatencyMs: latencies.length ? latencies.reduce((a, b) => a + b, 0) / latencies.length : null,
+    p95LatencyMs: percentile(latencies, 95),
+    p99LatencyMs: percentile(latencies, 99),
+    dlrMismatch,
+  };
+}
+
 function requireAdmin(req, res, next) {
   const key = req.header("x-admin-key");
   if (key !== process.env.ADMIN_API_KEY) return res.status(401).json({ error: "clé admin invalide" });
@@ -82,47 +110,132 @@ router.get("/stats/overview", (req, res) => {
   const sinceHours = parseInt(req.query.sinceHours || "24", 10);
   const since = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
 
-  const totals = db
+  const rows = db
     .prepare(`
-      SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN final_status = 'delivered' THEN 1 ELSE 0 END) as delivered,
-        SUM(CASE WHEN final_status = 'timeout' THEN 1 ELSE 0 END) as timeout,
-        SUM(CASE WHEN final_status = 'failed' THEN 1 ELSE 0 END) as failed,
-        SUM(CASE WHEN final_status = 'pending' THEN 1 ELSE 0 END) as pending,
-        AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END) as avg_latency_ms
-      FROM test_messages WHERE sent_at >= ?
-    `)
-    .get(since);
-
-  const byRoute = db
-    .prepare(`
-      SELECT
-        r.id as route_id, r.name as route_name, r.provider_id, r.country, r.operator,
-        COUNT(t.id) as total,
-        SUM(CASE WHEN t.final_status = 'delivered' THEN 1 ELSE 0 END) as delivered,
-        SUM(CASE WHEN t.final_status = 'timeout' THEN 1 ELSE 0 END) as timeout,
-        SUM(CASE WHEN t.final_status = 'failed' THEN 1 ELSE 0 END) as failed,
-        AVG(CASE WHEN t.latency_ms IS NOT NULL THEN t.latency_ms END) as avg_latency_ms,
-        SUM(CASE WHEN t.dlr_status = 'delivered' AND t.final_status != 'delivered' THEN 1 ELSE 0 END) as dlr_mismatch
-      FROM routes r
-      LEFT JOIN test_messages t ON t.route_id = r.id AND t.sent_at >= ?
-      GROUP BY r.id
-      ORDER BY r.id
+      SELECT t.*, r.id as route_id, r.name as route_name, r.provider_id, r.country, r.operator
+      FROM test_messages t JOIN routes r ON r.id = t.route_id
+      WHERE t.sent_at >= ?
     `)
     .all(since);
 
-  res.json({
-    sinceHours,
-    totals: {
-      ...totals,
-      deliveryRate: totals.total ? totals.delivered / totals.total : null,
-    },
-    byRoute: byRoute.map((r) => ({
-      ...r,
-      deliveryRate: r.total ? r.delivered / r.total : null,
-    })),
+  const totals = aggregate(rows);
+  totals.testsPerHour = sinceHours ? totals.total / sinceHours : null;
+
+  const routeIds = [...new Set(rows.map((r) => r.route_id))];
+  const routeMeta = new Map(rows.map((r) => [r.route_id, r]));
+  const byRoute = routeIds.map((id) => {
+    const meta = routeMeta.get(id);
+    const routeRows = rows.filter((r) => r.route_id === id);
+    return {
+      routeId: id,
+      routeName: meta.route_name,
+      providerId: meta.provider_id,
+      country: meta.country,
+      operator: meta.operator,
+      ...aggregate(routeRows),
+    };
   });
+
+  // Inclut aussi les routes sans aucun test sur la période, pour ne pas les faire
+  // disparaître silencieusement du tableau de bord.
+  const allRoutes = db.prepare(`SELECT id, name, provider_id, country, operator FROM routes ORDER BY id`).all();
+  const byRouteFull = allRoutes.map((r) => {
+    const existing = byRoute.find((br) => br.routeId === r.id);
+    if (existing) return existing;
+    return {
+      routeId: r.id,
+      routeName: r.name,
+      providerId: r.provider_id,
+      country: r.country,
+      operator: r.operator,
+      ...aggregate([]),
+      testsPerHour: 0,
+    };
+  });
+
+  res.json({ sinceHours, totals, byRoute: byRouteFull });
+});
+
+// Ventilation par pays ou par opérateur (dimension déclarée sur chaque route),
+// pour comparer la QoS à un niveau plus agrégé qu'une route individuelle.
+router.get("/stats/by-dimension", (req, res) => {
+  const sinceHours = parseInt(req.query.sinceHours || "24", 10);
+  const dimension = req.query.dimension === "operator" ? "operator" : "country";
+  const since = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
+
+  const rows = db
+    .prepare(`
+      SELECT t.*, r.country, r.operator
+      FROM test_messages t JOIN routes r ON r.id = t.route_id
+      WHERE t.sent_at >= ?
+    `)
+    .all(since);
+
+  const groups = new Map();
+  for (const row of rows) {
+    const key = row[dimension] || "(non renseigné)";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  const result = [...groups.entries()]
+    .map(([key, groupRows]) => ({ [dimension]: key, ...aggregate(groupRows) }))
+    .sort((a, b) => (a.deliveryRate ?? 1) - (b.deliveryRate ?? 1)); // pires en premier
+
+  res.json({ sinceHours, dimension, groups: result });
+});
+
+// Export CSV brut des tests sur la période, pour analyse externe (Excel, etc.)
+router.get("/export/csv", (req, res) => {
+  const sinceHours = parseInt(req.query.sinceHours || "24", 10);
+  const since = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
+
+  const rows = db
+    .prepare(`
+      SELECT t.id, t.code, t.sent_at, t.final_status, t.provider_status, t.dlr_status,
+             t.latency_ms, t.dlr_latency_ms, t.received_from_number,
+             r.name as route_name, r.provider_id, r.country, r.operator
+      FROM test_messages t JOIN routes r ON r.id = t.route_id
+      WHERE t.sent_at >= ?
+      ORDER BY t.sent_at DESC
+    `)
+    .all(since);
+
+  const headers = [
+    "id", "code", "sent_at", "final_status", "provider_status", "dlr_status",
+    "latency_ms", "dlr_latency_ms", "received_from_number",
+    "route_name", "provider_id", "country", "operator",
+  ];
+  const escapeCsv = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [
+    headers.join(","),
+    ...rows.map((r) => headers.map((h) => escapeCsv(r[h])).join(",")),
+  ].join("\n");
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="sms-qos-export-${sinceHours}h.csv"`);
+  res.send(csv);
+});
+
+// ---------- Alertes ----------
+
+router.get("/alerts", (req, res) => {
+  const status = req.query.status === "all" ? null : req.query.status || "active";
+  const rows = status
+    ? db.prepare(`SELECT * FROM alerts WHERE status = ? ORDER BY created_at DESC LIMIT 100`).all(status)
+    : db.prepare(`SELECT * FROM alerts ORDER BY created_at DESC LIMIT 100`).all();
+  res.json(rows);
+});
+
+router.post("/alerts/:id/resolve", requireAdmin, (req, res) => {
+  db.prepare(`UPDATE alerts SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
+    req.params.id
+  );
+  res.json({ ok: true });
 });
 
 router.get("/stats/timeseries", (req, res) => {

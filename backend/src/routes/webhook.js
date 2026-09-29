@@ -46,23 +46,66 @@ router.post("/sms-received", (req, res) => {
   res.json({ matched: true, code, latencyMs });
 });
 
-// Optionnel: endpoint pour recevoir les DLR asynchrones de fournisseurs qui en envoient (webhook côté fournisseur)
-// À adapter au format exact du fournisseur (ceci est un format générique raisonnable).
-router.post("/dlr/:providerId", (req, res) => {
-  const { messageId, status } = req.body || {};
-  if (!messageId) return res.status(400).json({ error: "messageId requis" });
+// DLR (accusé de livraison) envoyé de manière asynchrone par le fournisseur.
+// Chaque fournisseur a son propre format et vocabulaire de statut — plutôt que
+// de deviner à l'avance, on : (1) accepte GET et POST, JSON ou query string,
+// (2) essaie plusieurs noms de champs courants pour l'ID de message et le
+// statut, (3) journalise TOUJOURS le payload brut dans dlr_events, matché ou
+// non, pour pouvoir regarder ce qu'un fournisseur envoie réellement et ajuster
+// les noms de champs ci-dessous si besoin.
+const MESSAGE_ID_FIELDS = ["messageId", "message_id", "id_state", "id", "sms_id", "smsId"];
+const STATUS_FIELDS = ["status", "state", "dlr_status", "delivery_status"];
+const DELIVERED_SYNONYMS = new Set(["delivered", "delivered_to_terminal", "success", "ok", "3", "true"]);
 
-  const testMsg = db.prepare(`SELECT * FROM test_messages WHERE provider_message_id = ?`).get(messageId);
-  if (!testMsg) return res.json({ matched: false });
+function firstDefined(obj, keys) {
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k];
+  }
+  return null;
+}
+
+function handleDlr(req, res) {
+  const providerId = req.params.providerId;
+  const payload = { ...req.query, ...(req.body || {}) };
+
+  const dlrEventInsert = db
+    .prepare(`INSERT INTO dlr_events (provider_id, matched_test_id, raw_body) VALUES (?, NULL, ?)`)
+    .run(providerId, JSON.stringify(payload));
+
+  const messageId = firstDefined(payload, MESSAGE_ID_FIELDS);
+  const rawStatus = firstDefined(payload, STATUS_FIELDS);
+
+  if (!messageId) {
+    console.warn(`[dlr:${providerId}] payload sans ID de message reconnu:`, JSON.stringify(payload));
+    return res.json({ matched: false, reason: "aucun champ d'ID de message reconnu, voir dlr_events pour le payload brut" });
+  }
+
+  const testMsg = db
+    .prepare(`SELECT * FROM test_messages WHERE provider_message_id = ? OR provider_message_id LIKE ?`)
+    .get(String(messageId), `${messageId}.%`);
+
+  if (!testMsg) {
+    console.warn(`[dlr:${providerId}] aucun test correspondant à messageId=${messageId}`);
+    return res.json({ matched: false, reason: "messageId inconnu (déjà nettoyé, ou ne correspond à aucun test)" });
+  }
+
+  const normalizedStatus = rawStatus != null && DELIVERED_SYNONYMS.has(String(rawStatus).toLowerCase())
+    ? "delivered"
+    : (rawStatus != null ? String(rawStatus).toLowerCase() : "unknown");
 
   const dlrAt = new Date().toISOString();
   const dlrLatency = new Date(dlrAt).getTime() - new Date(testMsg.sent_at).getTime();
 
   db.prepare(`
     UPDATE test_messages SET dlr_status = ?, dlr_at = ?, dlr_latency_ms = ? WHERE id = ?
-  `).run(status || "unknown", dlrAt, dlrLatency, testMsg.id);
+  `).run(normalizedStatus, dlrAt, dlrLatency, testMsg.id);
 
-  res.json({ matched: true });
-});
+  db.prepare(`UPDATE dlr_events SET matched_test_id = ? WHERE id = ?`).run(testMsg.id, dlrEventInsert.lastInsertRowid);
+
+  res.json({ matched: true, testId: testMsg.id, normalizedStatus });
+}
+
+router.post("/dlr/:providerId", handleDlr);
+router.get("/dlr/:providerId", handleDlr);
 
 module.exports = router;

@@ -51,6 +51,33 @@ CREATE TABLE IF NOT EXISTS test_messages (
 CREATE INDEX IF NOT EXISTS idx_test_messages_code ON test_messages(code);
 CREATE INDEX IF NOT EXISTS idx_test_messages_route ON test_messages(route_id);
 CREATE INDEX IF NOT EXISTS idx_test_messages_status ON test_messages(final_status);
+
+-- Un "type" + "scope_key" identifie ce qui a déclenché l'alerte (ex: type=delivery_rate,
+-- scope_key=route:1). Tant qu'une ligne du même (type, scope_key) reste "active", on ne
+-- recrée pas de doublon à chaque tick du scheduler — on se contente de la garder ouverte.
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL,
+  scope_key TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'warning',
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_active_unique ON alerts(type, scope_key) WHERE status = 'active';
+
+-- DLR bruts reçus des fournisseurs, même quand on n'a pas pu les corréler à un test
+-- (utile pour débugger le format exact envoyé par un fournisseur donné).
+CREATE TABLE IF NOT EXISTS dlr_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id TEXT NOT NULL,
+  matched_test_id INTEGER REFERENCES test_messages(id),
+  raw_body TEXT NOT NULL,
+  received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `);
 
 module.exports = db;

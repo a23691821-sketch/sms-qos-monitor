@@ -155,6 +155,51 @@
   }
 
   code.qcode { color: var(--text-dim); }
+
+  .header-actions { display: flex; align-items: center; gap: 10px; }
+  .btn {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+  }
+  .btn:hover { border-color: var(--text-faint); }
+
+  .alerts-box {
+    border: 1px solid var(--bad);
+    background: var(--bad-dim);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 24px;
+  }
+  .alerts-box.warning-only { border-color: var(--warn); background: var(--warn-dim); }
+  .alerts-title {
+    font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    color: var(--text); margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+  }
+  .alert-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; font-size: 13px; gap: 12px;
+  }
+  .alert-row + .alert-row { border-top: 1px solid rgba(255,255,255,0.08); }
+  .alert-sev { font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; flex-shrink: 0; }
+  .alert-sev.critical { background: var(--bad); color: #1a0a08; }
+  .alert-sev.warning { background: var(--warn); color: #1a1408; }
+  .alert-msg { flex: 1; color: var(--text); }
+  .alert-time { color: var(--text-faint); font-size: 11px; font-family: 'IBM Plex Mono', monospace; flex-shrink: 0; }
+
+  .dim-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .dim-tab {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--text-dim);
+    border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  .dim-tab.active { background: var(--good-dim); border-color: var(--good); color: var(--good); }
 </style>
 </head>
 <body>
@@ -164,15 +209,20 @@
     <h1><span class="pulse-dot"></span>SMS QoS Monitor</h1>
     <span class="subtitle" id="lastUpdated">—</span>
   </div>
-  <select id="rangeSelect">
-    <option value="6">6 dernières heures</option>
-    <option value="24" selected>24 dernières heures</option>
-    <option value="72">3 derniers jours</option>
-    <option value="168">7 derniers jours</option>
-  </select>
+  <div class="header-actions">
+    <a class="btn" id="exportBtn" href="#">Exporter CSV</a>
+    <select id="rangeSelect">
+      <option value="6">6 dernières heures</option>
+      <option value="24" selected>24 dernières heures</option>
+      <option value="72">3 derniers jours</option>
+      <option value="168">7 derniers jours</option>
+    </select>
+  </div>
 </header>
 
 <main>
+
+  <div id="alertsBox"></div>
 
   <div class="kpi-row" id="kpiRow"></div>
 
@@ -187,6 +237,27 @@
   </section>
 
   <section>
+    <div class="section-head"><h2>Par pays / opérateur</h2></div>
+    <div class="dim-tabs">
+      <button class="dim-tab active" data-dim="country">Pays</button>
+      <button class="dim-tab" data-dim="operator">Opérateur</button>
+    </div>
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th id="dimHeader">Pays</th>
+            <th>Envoyés</th>
+            <th>Latence moy. / P95</th>
+            <th>Délivrance</th>
+          </tr>
+        </thead>
+        <tbody id="dimBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
     <div class="section-head"><h2>Par route</h2></div>
     <div class="table-card">
       <table>
@@ -194,7 +265,7 @@
           <tr>
             <th>Route</th>
             <th>Envoyés</th>
-            <th>Latence moy.</th>
+            <th>Latence moy. / P95</th>
             <th>Délivrance</th>
           </tr>
         </thead>
@@ -249,6 +320,7 @@ function fmtTime(iso) {
 }
 
 let deliveryChart, latencyChart;
+let currentDimension = 'country';
 
 async function loadOverview(hours) {
   const res = await fetch(`${API}/api/stats/overview?sinceHours=${hours}`);
@@ -269,11 +341,13 @@ function renderKpis(t) {
   const rate = t.deliveryRate;
   const rateCls = rate == null ? '' : rate >= 0.95 ? 'good' : rate >= 0.8 ? 'warn' : 'bad';
   document.getElementById('kpiRow').innerHTML = [
-    kpiCard('Tests envoyés', t.total ?? 0),
+    kpiCard('Tests envoyés', t.total ?? 0, '', t.testsPerHour != null ? `${t.testsPerHour.toFixed(1)} / h` : ''),
     kpiCard('Taux de délivrance', fmtPct(rate), rateCls),
-    kpiCard('Latence moyenne', fmtMs(t.avg_latency_ms)),
+    kpiCard('Latence moyenne', fmtMs(t.avgLatencyMs)),
+    kpiCard('Latence P95', fmtMs(t.p95LatencyMs), '', t.p99LatencyMs != null ? `P99: ${fmtMs(t.p99LatencyMs)}` : ''),
     kpiCard('Timeouts', t.timeout ?? 0, (t.timeout > 0 ? 'warn' : '')),
     kpiCard('Échecs envoi', t.failed ?? 0, (t.failed > 0 ? 'bad' : '')),
+    kpiCard('DLR incohérents', t.dlrMismatch ?? 0, (t.dlrMismatch > 0 ? 'warn' : '')),
   ].join('');
 }
 
@@ -286,15 +360,15 @@ function renderRoutesTable(routes) {
   body.innerHTML = routes.map(r => {
     const pct = r.deliveryRate;
     const pctPx = pct == null ? 0 : Math.round(pct * 100);
-    const mismatch = r.dlr_mismatch > 0
-      ? `<span class="mismatch-tag">⚠ ${r.dlr_mismatch} DLR incohérent(s)</span>` : '';
+    const mismatch = r.dlrMismatch > 0
+      ? `<span class="mismatch-tag">⚠ ${r.dlrMismatch} DLR incohérent(s)</span>` : '';
     return `<tr>
       <td>
-        <div class="route-name">${r.route_name}</div>
-        <div class="route-meta">${[r.provider_id, r.country, r.operator].filter(Boolean).join(' · ')}</div>
+        <div class="route-name">${r.routeName}</div>
+        <div class="route-meta">${[r.providerId, r.country, r.operator].filter(Boolean).join(' · ')}</div>
       </td>
       <td class="mono">${r.total || 0}</td>
-      <td class="mono">${fmtMs(r.avg_latency_ms)}</td>
+      <td class="mono">${fmtMs(r.avgLatencyMs)} / ${fmtMs(r.p95LatencyMs)}</td>
       <td>
         <div class="bar-wrap">
           <div class="bar-track"><div class="bar-fill" style="width:${pctPx}%; background:${pctColor(pct)}"></div></div>
@@ -305,6 +379,62 @@ function renderRoutesTable(routes) {
     </tr>`;
   }).join('');
 }
+
+async function loadAlerts() {
+  const res = await fetch(`${API}/api/alerts?status=active`);
+  const alerts = await res.json();
+  const box = document.getElementById('alertsBox');
+  if (!alerts.length) { box.innerHTML = ''; return; }
+
+  const hasCritical = alerts.some(a => a.severity === 'critical');
+  box.innerHTML = `
+    <div class="alerts-box ${hasCritical ? '' : 'warning-only'}">
+      <div class="alerts-title">⚠ ${alerts.length} alerte${alerts.length > 1 ? 's' : ''} active${alerts.length > 1 ? 's' : ''}</div>
+      ${alerts.map(a => `
+        <div class="alert-row">
+          <span class="alert-sev ${a.severity}">${a.severity}</span>
+          <span class="alert-msg">${a.message}</span>
+          <span class="alert-time mono">${fmtTime(a.created_at)}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadByDimension(hours) {
+  const res = await fetch(`${API}/api/stats/by-dimension?dimension=${currentDimension}&sinceHours=${hours}`);
+  const data = await res.json();
+  document.getElementById('dimHeader').textContent = currentDimension === 'country' ? 'Pays' : 'Opérateur';
+  const body = document.getElementById('dimBody');
+  if (!data.groups.length) {
+    body.innerHTML = `<tr><td colspan="4" class="empty-state">Pas encore de données.</td></tr>`;
+    return;
+  }
+  body.innerHTML = data.groups.map(g => {
+    const pct = g.deliveryRate;
+    const pctPx = pct == null ? 0 : Math.round(pct * 100);
+    return `<tr>
+      <td class="route-name">${g[currentDimension]}</td>
+      <td class="mono">${g.total}</td>
+      <td class="mono">${fmtMs(g.avgLatencyMs)} / ${fmtMs(g.p95LatencyMs)}</td>
+      <td>
+        <div class="bar-wrap">
+          <div class="bar-track"><div class="bar-fill" style="width:${pctPx}%; background:${pctColor(pct)}"></div></div>
+          <div class="bar-pct mono">${fmtPct(pct)}</div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+document.querySelectorAll('.dim-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.dim-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentDimension = btn.dataset.dim;
+    loadByDimension(parseInt(document.getElementById('rangeSelect').value, 10));
+  });
+});
 
 async function loadTimeseries(hours) {
   const bucketMinutes = hours <= 6 ? 10 : hours <= 24 ? 30 : hours <= 72 ? 120 : 360;
@@ -358,7 +488,8 @@ async function loadRecent() {
 
 async function refreshAll() {
   const hours = parseInt(document.getElementById('rangeSelect').value, 10);
-  await Promise.all([loadOverview(hours), loadTimeseries(hours), loadRecent()]);
+  await Promise.all([loadOverview(hours), loadTimeseries(hours), loadRecent(), loadAlerts(), loadByDimension(hours)]);
+  document.getElementById('exportBtn').href = `${API}/api/export/csv?sinceHours=${hours}`;
   document.getElementById('lastUpdated').textContent = 'mis à jour ' + new Date().toLocaleTimeString('fr-FR');
 }
 

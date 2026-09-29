@@ -2,6 +2,7 @@ const cron = require("node-cron");
 const db = require("./db");
 const { generateTestCode, buildTestMessageBody } = require("./idgen");
 const { sendTestSms } = require("./providers");
+const { evaluateAlerts } = require("./alerts");
 
 const TIMEOUT_MINUTES = parseInt(process.env.TIMEOUT_MINUTES || "15", 10);
 
@@ -73,6 +74,13 @@ function startScheduler() {
     tickRoutes();
     tickTimeouts();
   });
+
+  // Les seuils d'alerte se basent sur les derniers tests déjà enregistrés, donc un
+  // cycle un peu plus espacé (toutes les 5 min) suffit et évite de spammer le webhook.
+  cron.schedule("*/5 * * * *", () => {
+    evaluateAlerts().catch((e) => console.error("[alerts] erreur d'évaluation:", e));
+  });
+
   console.log(`[scheduler] démarré (timeout = ${TIMEOUT_MINUTES} min)`);
 }
 
