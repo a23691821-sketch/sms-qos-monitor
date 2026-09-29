@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SMS QoS Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0F1619;
+    --surface: #16211F;
+    --surface-2: #1C2A28;
+    --line: #263532;
+    --text: #E7EEEC;
+    --text-dim: #8EA39E;
+    --text-faint: #5B6E69;
+    --good: #3FB88F;
+    --good-dim: #244B3F;
+    --warn: #E8A33D;
+    --warn-dim: #4A3C1E;
+    --bad: #E2604F;
+    --bad-dim: #4A2620;
+    --pending: #5B7FBF;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 28px clamp(16px, 4vw, 48px) 20px;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header .title-block { display: flex; align-items: baseline; gap: 14px; }
+  header h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  header .subtitle { color: var(--text-dim); font-size: 13px; }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+    box-shadow: 0 0 0 0 rgba(63,184,143,0.5);
+    animation: pulse 2s infinite;
+    display: inline-block; margin-right: 8px;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(63,184,143,0.5); }
+    70% { box-shadow: 0 0 0 8px rgba(63,184,143,0); }
+    100% { box-shadow: 0 0 0 0 rgba(63,184,143,0); }
+  }
+
+  select {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-family: inherit;
+    font-size: 13px;
+  }
+
+  main { padding: 28px clamp(16px, 4vw, 48px) 48px; max-width: 1320px; margin: 0 auto; }
+
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .kpi {
+    background: var(--surface);
+    padding: 18px 20px;
+  }
+  .kpi-label { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+  .kpi-value { font-family: 'IBM Plex Mono', monospace; font-size: 30px; font-weight: 500; line-height: 1; }
+  .kpi-value.good { color: var(--good); }
+  .kpi-value.warn { color: var(--warn); }
+  .kpi-value.bad { color: var(--bad); }
+  .kpi-sub { font-size: 11px; color: var(--text-faint); margin-top: 6px; }
+
+  section { margin-bottom: 32px; }
+  .section-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .section-head h2 { font-size: 14px; font-weight: 600; margin: 0; color: var(--text-dim); text-transform: none; }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    height: 260px;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .table-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  thead th {
+    text-align: left;
+    padding: 12px 16px;
+    font-size: 11px;
+    color: var(--text-faint);
+    font-weight: 500;
+    border-bottom: 1px solid var(--line);
+  }
+  tbody td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+
+  .route-name { font-weight: 500; }
+  .route-meta { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+
+  .bar-wrap { display: flex; align-items: center; gap: 10px; }
+  .bar-track { flex: 1; height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; min-width: 60px; }
+  .bar-fill { height: 100%; border-radius: 3px; }
+  .bar-pct { font-family: 'IBM Plex Mono', monospace; font-size: 12px; width: 44px; text-align: right; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: 0.02em;
+  }
+  .pill.delivered { background: var(--good-dim); color: var(--good); }
+  .pill.timeout { background: var(--warn-dim); color: var(--warn); }
+  .pill.failed { background: var(--bad-dim); color: var(--bad); }
+  .pill.pending { background: #1E2A3F; color: var(--pending); }
+
+  .mismatch-tag { color: var(--warn); font-size: 11px; margin-left: 8px; }
+
+  .empty-state {
+    padding: 48px 20px; text-align: center; color: var(--text-faint); font-size: 13px;
+  }
+
+  code.qcode { color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-block">
+    <h1><span class="pulse-dot"></span>SMS QoS Monitor</h1>
+    <span class="subtitle" id="lastUpdated">—</span>
+  </div>
+  <select id="rangeSelect">
+    <option value="6">6 dernières heures</option>
+    <option value="24" selected>24 dernières heures</option>
+    <option value="72">3 derniers jours</option>
+    <option value="168">7 derniers jours</option>
+  </select>
+</header>
+
+<main>
+
+  <div class="kpi-row" id="kpiRow"></div>
+
+  <section>
+    <div class="section-head"><h2>Taux de délivrance dans le temps</h2></div>
+    <div class="chart-card"><canvas id="deliveryChart"></canvas></div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Latence moyenne (envoi → réception réelle)</h2></div>
+    <div class="chart-card"><canvas id="latencyChart"></canvas></div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Par route</h2></div>
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th>Envoyés</th>
+            <th>Latence moy.</th>
+            <th>Délivrance</th>
+          </tr>
+        </thead>
+        <tbody id="routesBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Tests récents</h2></div>
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>Heure d'envoi</th>
+            <th>Route</th>
+            <th>Code</th>
+            <th>Latence</th>
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody id="recentBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<script>
+const API = ''; // même origine que le dashboard
+
+function fmtMs(ms) {
+  if (ms == null) return '—';
+  if (ms < 1000) return ms + ' ms';
+  const s = ms / 1000;
+  if (s < 60) return s.toFixed(1) + ' s';
+  return (s / 60).toFixed(1) + ' min';
+}
+function fmtPct(x) {
+  if (x == null) return '—';
+  return (x * 100).toFixed(1) + '%';
+}
+function pctColor(x) {
+  if (x == null) return 'var(--text-faint)';
+  if (x >= 0.95) return 'var(--good)';
+  if (x >= 0.8) return 'var(--warn)';
+  return 'var(--bad)';
+}
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+let deliveryChart, latencyChart;
+
+async function loadOverview(hours) {
+  const res = await fetch(`${API}/api/stats/overview?sinceHours=${hours}`);
+  const data = await res.json();
+  renderKpis(data.totals);
+  renderRoutesTable(data.byRoute);
+}
+
+function kpiCard(label, value, cls, sub) {
+  return `<div class="kpi">
+    <div class="kpi-label">${label}</div>
+    <div class="kpi-value ${cls || ''}">${value}</div>
+    ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
+  </div>`;
+}
+
+function renderKpis(t) {
+  const rate = t.deliveryRate;
+  const rateCls = rate == null ? '' : rate >= 0.95 ? 'good' : rate >= 0.8 ? 'warn' : 'bad';
+  document.getElementById('kpiRow').innerHTML = [
+    kpiCard('Tests envoyés', t.total ?? 0),
+    kpiCard('Taux de délivrance', fmtPct(rate), rateCls),
+    kpiCard('Latence moyenne', fmtMs(t.avg_latency_ms)),
+    kpiCard('Timeouts', t.timeout ?? 0, (t.timeout > 0 ? 'warn' : '')),
+    kpiCard('Échecs envoi', t.failed ?? 0, (t.failed > 0 ? 'bad' : '')),
+  ].join('');
+}
+
+function renderRoutesTable(routes) {
+  const body = document.getElementById('routesBody');
+  if (!routes.length) {
+    body.innerHTML = `<tr><td colspan="4" class="empty-state">Aucune route configurée. Crée-en une via l'API /api/routes.</td></tr>`;
+    return;
+  }
+  body.innerHTML = routes.map(r => {
+    const pct = r.deliveryRate;
+    const pctPx = pct == null ? 0 : Math.round(pct * 100);
+    const mismatch = r.dlr_mismatch > 0
+      ? `<span class="mismatch-tag">⚠ ${r.dlr_mismatch} DLR incohérent(s)</span>` : '';
+    return `<tr>
+      <td>
+        <div class="route-name">${r.route_name}</div>
+        <div class="route-meta">${[r.provider_id, r.country, r.operator].filter(Boolean).join(' · ')}</div>
+      </td>
+      <td class="mono">${r.total || 0}</td>
+      <td class="mono">${fmtMs(r.avg_latency_ms)}</td>
+      <td>
+        <div class="bar-wrap">
+          <div class="bar-track"><div class="bar-fill" style="width:${pctPx}%; background:${pctColor(pct)}"></div></div>
+          <div class="bar-pct mono">${fmtPct(pct)}</div>
+        </div>
+        ${mismatch}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadTimeseries(hours) {
+  const bucketMinutes = hours <= 6 ? 10 : hours <= 24 ? 30 : hours <= 72 ? 120 : 360;
+  const res = await fetch(`${API}/api/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutes}`);
+  const series = await res.json();
+  const labels = series.map(s => fmtTime(s.time));
+
+  const deliveryData = series.map(s => s.deliveryRate == null ? null : Math.round(s.deliveryRate * 1000) / 10);
+  const latencyData = series.map(s => s.avgLatencyMs == null ? null : Math.round(s.avgLatencyMs / 100) / 10);
+
+  const chartDefaults = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: '#26352233' }, ticks: { color: '#5B6E69', maxRotation: 0, autoSkip: true, font: { family: 'IBM Plex Mono', size: 10 } } },
+      y: { grid: { color: '#26352233' }, ticks: { color: '#5B6E69', font: { family: 'IBM Plex Mono', size: 10 } } }
+    }
+  };
+
+  if (deliveryChart) deliveryChart.destroy();
+  deliveryChart = new Chart(document.getElementById('deliveryChart'), {
+    type: 'line',
+    data: { labels, datasets: [{ data: deliveryData, borderColor: '#3FB88F', backgroundColor: '#3FB88F22', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 }] },
+    options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, max: 100, ticks: { ...chartDefaults.scales.y.ticks, callback: v => v + '%' } } } }
+  });
+
+  if (latencyChart) latencyChart.destroy();
+  latencyChart = new Chart(document.getElementById('latencyChart'), {
+    type: 'line',
+    data: { labels, datasets: [{ data: latencyData, borderColor: '#5B7FBF', backgroundColor: '#5B7FBF22', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 }] },
+    options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, ticks: { ...chartDefaults.scales.y.ticks, callback: v => v + 's' } } } }
+  });
+}
+
+async function loadRecent() {
+  const res = await fetch(`${API}/api/stats/recent?limit=40`);
+  const rows = await res.json();
+  const body = document.getElementById('recentBody');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">Pas encore de test envoyé.</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map(r => `<tr>
+    <td class="mono">${fmtTime(r.sent_at)}</td>
+    <td>${r.route_name}</td>
+    <td><code class="qcode mono">${r.code}</code></td>
+    <td class="mono">${fmtMs(r.latency_ms)}</td>
+    <td><span class="pill ${r.final_status}">${r.final_status}</span></td>
+  </tr>`).join('');
+}
+
+async function refreshAll() {
+  const hours = parseInt(document.getElementById('rangeSelect').value, 10);
+  await Promise.all([loadOverview(hours), loadTimeseries(hours), loadRecent()]);
+  document.getElementById('lastUpdated').textContent = 'mis à jour ' + new Date().toLocaleTimeString('fr-FR');
+}
+
+document.getElementById('rangeSelect').addEventListener('change', refreshAll);
+refreshAll();
+setInterval(refreshAll, 30000); // auto-refresh toutes les 30s
+</script>
+
+</body>
+</html>

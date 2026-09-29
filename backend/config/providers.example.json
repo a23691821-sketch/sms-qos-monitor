@@ -1,0 +1,55 @@
+{
+  "_comment": "Copie ce fichier vers providers.json et adapte chaque entrée à l'API réelle de ton fournisseur. La clé (ex: 'orange_wholesale') est l'id que tu utilises comme provider_id lors de la création d'une route.",
+
+  "exemple_json_api": {
+    "_comment": "Cas typique: fournisseur avec API REST JSON + clé en header Authorization",
+    "sendUrl": "https://api.mon-fournisseur.com/v1/sms/send",
+    "method": "POST",
+    "bodyType": "json",
+    "headers": {
+      "Authorization": "Bearer REMPLACE_PAR_TA_CLE",
+      "Content-Type": "application/json"
+    },
+    "bodyTemplate": {
+      "to": "{{to}}",
+      "from": "QOSTEST",
+      "text": "{{text}}"
+    },
+    "messageIdPath": "id",
+    "staticVars": {}
+  },
+
+  "exemple_smpp_via_http_gateway": {
+    "_comment": "Cas typique: fournisseur SMPP exposé via une passerelle HTTP interne (souvent form-encoded)",
+    "sendUrl": "https://smsc.mon-fournisseur.com/cgi-bin/sendsms",
+    "method": "GET",
+    "bodyType": "query",
+    "headers": {},
+    "bodyTemplate": {
+      "user": "TON_LOGIN",
+      "pass": "TON_MOT_DE_PASSE",
+      "to": "{{to}}",
+      "from": "QOSTEST",
+      "text": "{{text}}"
+    },
+    "messageIdPath": "message_id",
+    "staticVars": {}
+  },
+
+  "twilio_style": {
+    "_comment": "Format proche de Twilio (form-encoded, auth basic). Adapte l'URL avec ton Account SID.",
+    "sendUrl": "https://api.twilio.com/2010-04-01/Accounts/REMPLACE_SID/Messages.json",
+    "method": "POST",
+    "bodyType": "form",
+    "headers": {
+      "Authorization": "Basic REMPLACE_PAR_BASE64_SID:TOKEN"
+    },
+    "bodyTemplate": {
+      "To": "{{to}}",
+      "From": "+10000000000",
+      "Body": "{{text}}"
+    },
+    "messageIdPath": "sid",
+    "staticVars": {}
+  }
+}
