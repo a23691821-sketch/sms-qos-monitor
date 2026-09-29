@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -56,3 +59,21 @@ jobs:
           name: sms-qos-monitor-debug-apk
           path: android-app/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      # GitHub Actions artifact downloads redirect to Azure Blob Storage, which
+      # some networks (including the one this was set up from) can't reach.
+      # Publishing the APK on a dedicated branch makes it fetchable with a
+      # plain `git pull`, which works everywhere git itself works.
+      - name: Publish APK to apk-output branch
+        working-directory: .
+        run: |
+          set -e
+          mkdir -p dist
+          cp android-app/app/build/outputs/apk/debug/app-debug.apk dist/app-debug.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan apk-output
+          git rm -rf . > /dev/null
+          git add -f dist/app-debug.apk
+          git commit -m "ci: publish built debug APK [skip ci]"
+          git push origin HEAD:apk-output --force
