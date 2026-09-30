@@ -220,6 +220,57 @@ router.get("/tests", requireAdmin, (req, res) => {
   );
 });
 
+// Export CSV des tests manuels uniquement (voir /export/csv pour l'export
+// global). Public comme /export/csv : protégé par la session du dashboard,
+// pas par la clé admin, puisqu'il s'agit d'une simple lecture — ça permet
+// aussi au lien de téléchargement de fonctionner en <a href> tout simple,
+// sans passer par adminFetch (le navigateur n'ajoute pas de header perso
+// sur une navigation classique).
+router.get("/tests/export/csv", (req, res) => {
+  const hours = parseInt(req.query.hours || "24", 10);
+  const since = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+
+  const rows = db
+    .prepare(`
+      SELECT
+        t.id, t.code, t.sent_at, t.body, t.sender_id, t.received_from_number,
+        t.provider_status, t.final_status, t.dlr_status, t.dlr_at,
+        t.received_at, t.latency_ms, t.dlr_latency_ms,
+        r.name as route_name, r.provider_id, r.operator, r.destination_number,
+        d.name as device_name
+      FROM test_messages t
+      JOIN routes r ON r.id = t.route_id
+      JOIN devices d ON d.id = r.device_id
+      WHERE t.trigger_type = 'manual' AND t.sent_at >= ?
+      ORDER BY t.sent_at DESC
+    `)
+    .all(since);
+
+  const headers = [
+    "id", "code", "sent_at", "destination_number", "message_body",
+    "sender_id", "received_from_number", "route_name", "operator",
+    "device_name", "provider_id", "provider_status",
+    "dlr_status", "dlr_at", "received_at",
+    "latency_ms", "dlr_latency_ms", "final_status",
+  ];
+  const escapeCsv = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [
+    headers.join(","),
+    ...rows.map((r) => {
+      const record = { ...r, message_body: r.body || buildTestMessageBody(r.code) };
+      return headers.map((h) => escapeCsv(record[h])).join(",");
+    }),
+  ].join("\n");
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="sms-qos-tests-manuels-${hours}h.csv"`);
+  res.send(csv);
+});
+
 // ---------- Stats pour le dashboard ----------
 
 router.get("/stats/overview", (req, res) => {

@@ -125,6 +125,10 @@
   .content-topbar h1 { font-size: 19px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
 
   main { padding: 26px clamp(16px, 3vw, 40px) 48px; max-width: 1320px; width: 100%; margin: 0 auto; }
+  /* L'historique des tests manuels a beaucoup de colonnes : sur cette
+     sous-page on laisse le contenu profiter de toute la largeur de l'écran
+     plutôt que de le limiter à 1320px comme le reste du dashboard. */
+  main.wide { max-width: none; }
 
   .page[hidden] { display: none; }
 
@@ -453,7 +457,7 @@
       </div>
     </div>
 
-    <main>
+    <main id="mainContent">
 
       <div class="page" data-page="overview">
         <div id="alertsBox"></div>
@@ -523,6 +527,8 @@
                   <th>Heure d'envoi</th>
                   <th>Route</th>
                   <th>Code</th>
+                  <th>Sender envoyé</th>
+                  <th>Sender reçu</th>
                   <th>Latence</th>
                   <th>DLR</th>
                   <th>Statut</th>
@@ -580,7 +586,10 @@
             <div class="table-card">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                 <h3 style="margin:0; font-size:14px;">Historique des tests manuels</h3>
-                <button class="btn btn-sm" id="manualHistoryRefreshBtn">Rafraîchir</button>
+                <div style="display:flex; gap:8px;">
+                  <a class="btn btn-sm" href="/api/tests/export/csv?hours=24" download>Télécharger CSV (24h)</a>
+                  <button class="btn btn-sm" id="manualHistoryRefreshBtn">Rafraîchir</button>
+                </div>
               </div>
               <div style="overflow-x:auto;">
                 <table class="data-table compact-table" id="manualHistoryTable">
@@ -935,6 +944,17 @@ async function loadByDimension(hours) {
 
 // ---------- Navigation par pages (sidebar) ----------
 
+// La sous-page "Historique" (dans "Test manuel") a besoin de toute la largeur
+// de l'écran vu son nombre de colonnes ; toutes les autres pages restent
+// centrées à largeur normale. Appelé à la fois quand on change de page dans
+// la sidebar et quand on change de sous-onglet à l'intérieur de "Test manuel".
+function syncMainWidth() {
+  const manualPage = document.querySelector('.page[data-page="manual"]');
+  const manualVisible = manualPage && !manualPage.hidden;
+  const historyActive = document.getElementById('manualTabHistory').classList.contains('active');
+  document.getElementById('mainContent').classList.toggle('wide', manualVisible && historyActive);
+}
+
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
@@ -948,6 +968,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     document.getElementById('topbarControls').style.display = (page === 'config' || page === 'manual') ? 'none' : 'flex';
 
     if (page === 'manual') loadManualPage();
+    syncMainWidth();
   });
 });
 
@@ -1001,13 +1022,15 @@ async function loadRecent() {
   const rows = await res.json();
   const body = document.getElementById('recentBody');
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="6" class="empty-state">Pas encore de test envoyé.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" class="empty-state">Pas encore de test envoyé.</td></tr>`;
     return;
   }
   body.innerHTML = rows.map(r => `<tr>
     <td class="mono">${fmtTime(r.sent_at)}</td>
     <td class="truncate-sm" title="${escapeAttr(r.route_name)}">${r.route_name}</td>
     <td><code class="qcode mono">${r.code}</code></td>
+    <td class="truncate-sm">${escapeAttr(r.sender_id || '—')}</td>
+    <td class="truncate-sm">${senderRecuLabel(r.sender_id, r.received_from_number)}</td>
     <td class="mono">${fmtMs(r.latency_ms)}</td>
     <td>${manualHistoryDlrLabel(r.dlr_status, r.dlr_at)}</td>
     <td><span class="pill ${r.final_status}">${r.final_status}</span></td>
@@ -1297,6 +1320,7 @@ document.querySelectorAll('.sub-tab').forEach(btn => {
     const sub = btn.dataset.subtab;
     document.getElementById('manualSubpageRun').style.display = sub === 'run' ? 'block' : 'none';
     document.getElementById('manualSubpageHistory').style.display = sub === 'history' ? 'block' : 'none';
+    syncMainWidth();
     if (sub === 'history') loadManualHistory();
   });
 });
