@@ -2,6 +2,7 @@ const express = require("express");
 const crypto = require("crypto");
 const db = require("./../db");
 const { runTestForRoute } = require("./../scheduler");
+const { loadProviderConfigs } = require("./../providers");
 
 const router = express.Router();
 
@@ -39,6 +40,16 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// ---------- Fournisseurs (lecture seule, juste la liste des IDs configurés) ----------
+
+router.get("/providers", requireAdmin, (req, res) => {
+  try {
+    res.json(Object.keys(loadProviderConfigs()));
+  } catch (err) {
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
 // ---------- Devices (téléphones Android de test) ----------
 
 router.post("/devices", requireAdmin, (req, res) => {
@@ -51,8 +62,10 @@ router.post("/devices", requireAdmin, (req, res) => {
   res.json({ id: lastInsertRowid, name, apiKey, phoneNumber });
 });
 
+// Inclut api_key : endpoint protégé par la clé admin, nécessaire pour ré-afficher
+// la clé de pairage d'un appareil déjà créé (ex: réinstallation de l'app).
 router.get("/devices", requireAdmin, (req, res) => {
-  res.json(db.prepare(`SELECT id, name, phone_number, last_seen_at, created_at FROM devices`).all());
+  res.json(db.prepare(`SELECT id, name, phone_number, api_key, last_seen_at, created_at FROM devices`).all());
 });
 
 // ---------- Routes (couples fournisseur/pays/opérateur/SIM à tester) ----------
@@ -83,15 +96,32 @@ router.get("/routes", requireAdmin, (req, res) => {
   );
 });
 
+// Champs partiels : seuls ceux fournis (non-undefined) sont modifiés. Le
+// paramètre le plus demandé est intervalMinutes (fréquence d'envoi par SIM),
+// mais on permet aussi de corriger le reste sans devoir recréer la route.
 router.patch("/routes/:id", requireAdmin, (req, res) => {
-  const { active, intervalMinutes } = req.body || {};
+  const { active, intervalMinutes, name, country, operator, destinationNumber } = req.body || {};
   const route = db.prepare(`SELECT * FROM routes WHERE id = ?`).get(req.params.id);
   if (!route) return res.status(404).json({ error: "route introuvable" });
 
   db.prepare(`
-    UPDATE routes SET active = COALESCE(?, active), interval_minutes = COALESCE(?, interval_minutes)
+    UPDATE routes SET
+      active = COALESCE(?, active),
+      interval_minutes = COALESCE(?, interval_minutes),
+      name = COALESCE(?, name),
+      country = COALESCE(?, country),
+      operator = COALESCE(?, operator),
+      destination_number = COALESCE(?, destination_number)
     WHERE id = ?
-  `).run(active === undefined ? null : (active ? 1 : 0), intervalMinutes || null, req.params.id);
+  `).run(
+    active === undefined ? null : (active ? 1 : 0),
+    intervalMinutes || null,
+    name || null,
+    country === undefined ? null : (country || ""),
+    operator === undefined ? null : (operator || ""),
+    destinationNumber || null,
+    req.params.id
+  );
 
   res.json({ ok: true });
 });

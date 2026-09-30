@@ -199,6 +199,43 @@
     border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: inherit;
   }
   .dim-tab.active { background: var(--good-dim); border-color: var(--good); color: var(--good); }
+
+  .config-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 18px;
+  }
+  .config-lock {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .config-lock input { flex: 1; min-width: 180px; }
+  input, select {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 10px; font-family: inherit; font-size: 13px;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--good); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-primary { background: var(--good-dim); border-color: var(--good); color: var(--good); }
+  .form-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 12px;
+  }
+  .form-grid label { display: block; font-size: 11px; color: var(--text-faint); margin-bottom: 4px; }
+  .form-actions { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+  .interval-cell { display: flex; align-items: center; gap: 6px; }
+  .interval-cell input { width: 64px; }
+  .apikey-box {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-top: 8px;
+    word-break: break-all; display: none;
+  }
+  .toggle-pill {
+    display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px;
+    cursor: pointer; border: 1px solid var(--line); user-select: none;
+  }
+  .toggle-pill.on { background: var(--good-dim); border-color: var(--good); color: var(--good); }
+  .toggle-pill.off { background: var(--bad-dim); border-color: var(--bad); color: var(--bad); }
+  .config-msg { font-size: 12px; margin-top: 8px; }
+  .config-msg.ok { color: var(--good); }
+  .config-msg.err { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -291,10 +328,83 @@
     </div>
   </section>
 
+  <section>
+    <div class="section-head"><h2>Configuration — routes &amp; appareils</h2></div>
+
+    <div class="config-card" id="configLockCard">
+      <div class="config-lock">
+        <input type="password" id="adminKeyInput" placeholder="Clé admin (ADMIN_API_KEY)" />
+        <button class="btn btn-sm btn-primary" id="adminKeyBtn">Se connecter</button>
+        <span id="adminKeyMsg" class="config-msg"></span>
+      </div>
+    </div>
+
+    <div id="configPanel" style="display:none;">
+
+      <div class="config-card">
+        <div class="section-head" style="margin-bottom:10px;">
+          <h2>Routes de test (une par SIM / destination)</h2>
+          <button class="btn btn-sm" id="adminLogoutBtn">Se déconnecter</button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead>
+              <tr>
+                <th>Nom</th><th>Fournisseur</th><th>Pays / opérateur</th><th>Numéro</th>
+                <th>Appareil</th><th>Intervalle</th><th>Statut</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="adminRoutesBody"></tbody>
+          </table>
+        </div>
+
+        <div class="section-head" style="margin-top:20px; margin-bottom:0;"><h2 style="font-size:13px;">+ Nouvelle route</h2></div>
+        <div class="form-grid">
+          <div><label>Nom</label><input id="newRouteName" placeholder="Orange FR - SIM test 1" /></div>
+          <div><label>Fournisseur</label><select id="newRouteProvider"></select></div>
+          <div><label>Pays</label><input id="newRouteCountry" placeholder="FR" /></div>
+          <div><label>Opérateur</label><input id="newRouteOperator" placeholder="Orange" /></div>
+          <div><label>Numéro destination</label><input id="newRouteDest" placeholder="+336..." /></div>
+          <div><label>Appareil (SIM réceptrice)</label><select id="newRouteDevice"></select></div>
+          <div><label>Intervalle (min)</label><input id="newRouteInterval" type="number" min="1" value="10" /></div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-sm btn-primary" id="createRouteBtn">Créer la route</button>
+          <span id="createRouteMsg" class="config-msg"></span>
+        </div>
+      </div>
+
+      <div class="config-card">
+        <div class="section-head" style="margin-bottom:10px;"><h2>Appareils (téléphones Android)</h2></div>
+        <div class="table-card">
+          <table>
+            <thead>
+              <tr><th>Nom</th><th>Numéro</th><th>Vu pour la dernière fois</th><th></th></tr>
+            </thead>
+            <tbody id="adminDevicesBody"></tbody>
+          </table>
+        </div>
+
+        <div class="section-head" style="margin-top:20px; margin-bottom:0;"><h2 style="font-size:13px;">+ Nouvel appareil</h2></div>
+        <div class="form-grid">
+          <div><label>Nom</label><input id="newDeviceName" placeholder="Pixel test 1" /></div>
+          <div><label>Numéro (optionnel)</label><input id="newDeviceNumber" placeholder="+336..." /></div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-sm btn-primary" id="createDeviceBtn">Créer l'appareil</button>
+          <span id="createDeviceMsg" class="config-msg"></span>
+        </div>
+        <div class="apikey-box" id="newDeviceKeyBox"></div>
+      </div>
+
+    </div>
+  </section>
+
 </main>
 
 <script>
 const API = ''; // même origine que le dashboard
+const ADMIN_KEY_STORAGE = 'smsQosAdminKey';
 
 function fmtMs(ms) {
   if (ms == null) return '—';
@@ -538,6 +648,218 @@ async function loadRecent() {
   </tr>`).join('');
 }
 
+// ---------- Configuration (routes & appareils, protégé par la clé admin) ----------
+
+function getAdminKey() {
+  try { return localStorage.getItem(ADMIN_KEY_STORAGE) || ''; } catch (e) { return ''; }
+}
+function setAdminKey(key) {
+  try { localStorage.setItem(ADMIN_KEY_STORAGE, key); } catch (e) { /* stockage indisponible, tant pis */ }
+}
+function clearAdminKey() {
+  try { localStorage.removeItem(ADMIN_KEY_STORAGE); } catch (e) { /* rien à faire */ }
+}
+
+async function adminFetch(path, opts) {
+  const res = await fetch(`${API}${path}`, {
+    ...opts,
+    headers: { ...(opts && opts.headers), 'x-admin-key': getAdminKey(), 'Content-Type': 'application/json' },
+  });
+  if (res.status === 401) {
+    clearAdminKey();
+    showConfigLock('Clé admin invalide ou expirée, reconnecte-toi.');
+    throw new Error('admin_unauthorized');
+  }
+  return res;
+}
+
+function showConfigLock(msg) {
+  document.getElementById('configPanel').style.display = 'none';
+  document.getElementById('configLockCard').style.display = 'block';
+  const m = document.getElementById('adminKeyMsg');
+  m.textContent = msg || '';
+  m.className = 'config-msg err';
+}
+
+function showConfigPanel() {
+  document.getElementById('configLockCard').style.display = 'none';
+  document.getElementById('configPanel').style.display = 'block';
+}
+
+async function tryLoadConfigSection() {
+  if (!getAdminKey()) { showConfigLock(); return; }
+  try {
+    await loadConfigSection();
+    showConfigPanel();
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') showConfigLock('Impossible de charger la configuration.');
+  }
+}
+
+async function loadConfigSection() {
+  const [providers, devices, routes] = await Promise.all([
+    adminFetch('/api/providers').then(r => r.json()),
+    adminFetch('/api/devices').then(r => r.json()),
+    adminFetch('/api/routes').then(r => r.json()),
+  ]);
+  renderAdminDevices(devices);
+  renderAdminRoutes(routes, devices);
+  renderProviderOptions(providers);
+  renderDeviceOptions(devices);
+}
+
+function renderProviderOptions(providers) {
+  const sel = document.getElementById('newRouteProvider');
+  sel.innerHTML = providers.map(p => `<option value="${p}">${p}</option>`).join('') || '<option value="">(aucun fournisseur configuré)</option>';
+}
+
+function renderDeviceOptions(devices) {
+  const sel = document.getElementById('newRouteDevice');
+  sel.innerHTML = devices.map(d => `<option value="${d.id}">${d.name}${d.phone_number ? ' — ' + d.phone_number : ''}</option>`).join('')
+    || '<option value="">(crée d\'abord un appareil ci-dessous)</option>';
+}
+
+function renderAdminRoutes(routes, devices) {
+  const body = document.getElementById('adminRoutesBody');
+  if (!routes.length) {
+    body.innerHTML = `<tr><td colspan="8" class="empty-state">Aucune route. Crée-en une ci-dessous.</td></tr>`;
+    return;
+  }
+  body.innerHTML = routes.map(r => `
+    <tr data-route-id="${r.id}">
+      <td>${r.name}</td>
+      <td class="mono">${r.provider_id}</td>
+      <td>${[r.country, r.operator].filter(Boolean).join(' / ') || '—'}</td>
+      <td class="mono">${r.destination_number}</td>
+      <td>${r.device_name}</td>
+      <td>
+        <div class="interval-cell">
+          <input type="number" min="1" value="${r.interval_minutes}" class="route-interval-input" />
+          <span>min</span>
+        </div>
+      </td>
+      <td><span class="toggle-pill ${r.active ? 'on' : 'off'} route-active-toggle" data-active="${r.active ? 1 : 0}">${r.active ? 'Actif' : 'En pause'}</span></td>
+      <td><button class="btn btn-sm route-save-btn">Enregistrer</button></td>
+    </tr>`).join('');
+
+  body.querySelectorAll('.route-active-toggle').forEach(el => {
+    el.addEventListener('click', () => {
+      const isOn = el.dataset.active === '1';
+      el.dataset.active = isOn ? '0' : '1';
+      el.textContent = isOn ? 'En pause' : 'Actif';
+      el.classList.toggle('on', !isOn);
+      el.classList.toggle('off', isOn);
+    });
+  });
+
+  body.querySelectorAll('.route-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const routeId = row.dataset.routeId;
+      const intervalMinutes = parseInt(row.querySelector('.route-interval-input').value, 10);
+      const active = row.querySelector('.route-active-toggle').dataset.active === '1';
+      btn.textContent = '...';
+      btn.disabled = true;
+      try {
+        await adminFetch(`/api/routes/${routeId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ intervalMinutes, active }),
+        });
+        btn.textContent = 'Enregistré ✓';
+        setTimeout(() => { btn.textContent = 'Enregistrer'; btn.disabled = false; }, 1500);
+      } catch (e) {
+        btn.textContent = 'Erreur';
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+function renderAdminDevices(devices) {
+  const body = document.getElementById('adminDevicesBody');
+  if (!devices.length) {
+    body.innerHTML = `<tr><td colspan="4" class="empty-state">Aucun appareil. Crée-en un ci-dessous.</td></tr>`;
+    return;
+  }
+  body.innerHTML = devices.map(d => `
+    <tr>
+      <td>${d.name}</td>
+      <td class="mono">${d.phone_number || '—'}</td>
+      <td class="mono">${d.last_seen_at ? fmtTime(d.last_seen_at) : 'jamais'}</td>
+      <td><button class="btn btn-sm device-showkey-btn" data-key="${d.api_key}">Voir la clé API</button></td>
+    </tr>`).join('');
+
+  body.querySelectorAll('.device-showkey-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      alert('Clé API pour l\'app Android :\n\n' + btn.dataset.key);
+    });
+  });
+}
+
+document.getElementById('adminKeyBtn').addEventListener('click', async () => {
+  const key = document.getElementById('adminKeyInput').value.trim();
+  if (!key) return;
+  setAdminKey(key);
+  document.getElementById('adminKeyInput').value = '';
+  await tryLoadConfigSection();
+});
+
+document.getElementById('adminLogoutBtn').addEventListener('click', () => {
+  clearAdminKey();
+  showConfigLock();
+});
+
+document.getElementById('createRouteBtn').addEventListener('click', async () => {
+  const msg = document.getElementById('createRouteMsg');
+  const name = document.getElementById('newRouteName').value.trim();
+  const providerId = document.getElementById('newRouteProvider').value;
+  const country = document.getElementById('newRouteCountry').value.trim();
+  const operator = document.getElementById('newRouteOperator').value.trim();
+  const destinationNumber = document.getElementById('newRouteDest').value.trim();
+  const deviceId = document.getElementById('newRouteDevice').value;
+  const intervalMinutes = parseInt(document.getElementById('newRouteInterval').value, 10) || 10;
+
+  if (!name || !providerId || !destinationNumber || !deviceId) {
+    msg.textContent = 'Nom, fournisseur, numéro et appareil sont requis.';
+    msg.className = 'config-msg err';
+    return;
+  }
+  try {
+    await adminFetch('/api/routes', {
+      method: 'POST',
+      body: JSON.stringify({ name, providerId, country, operator, destinationNumber, deviceId: parseInt(deviceId, 10), intervalMinutes }),
+    });
+    msg.textContent = 'Route créée.';
+    msg.className = 'config-msg ok';
+    document.getElementById('newRouteName').value = '';
+    document.getElementById('newRouteDest').value = '';
+    await loadConfigSection();
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') { msg.textContent = 'Erreur lors de la création.'; msg.className = 'config-msg err'; }
+  }
+});
+
+document.getElementById('createDeviceBtn').addEventListener('click', async () => {
+  const msg = document.getElementById('createDeviceMsg');
+  const name = document.getElementById('newDeviceName').value.trim();
+  const phoneNumber = document.getElementById('newDeviceNumber').value.trim();
+  if (!name) { msg.textContent = 'Le nom est requis.'; msg.className = 'config-msg err'; return; }
+  try {
+    const res = await adminFetch('/api/devices', { method: 'POST', body: JSON.stringify({ name, phoneNumber }) });
+    const data = await res.json();
+    msg.textContent = 'Appareil créé.';
+    msg.className = 'config-msg ok';
+    document.getElementById('newDeviceName').value = '';
+    document.getElementById('newDeviceNumber').value = '';
+    const keyBox = document.getElementById('newDeviceKeyBox');
+    keyBox.style.display = 'block';
+    keyBox.textContent = 'Clé API à saisir dans l\'app Android : ' + data.apiKey;
+    await loadConfigSection();
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') { msg.textContent = 'Erreur lors de la création.'; msg.className = 'config-msg err'; }
+  }
+});
+
 async function refreshAll() {
   const hours = parseInt(document.getElementById('rangeSelect').value, 10);
   await Promise.all([loadOverview(hours), loadTimeseries(hours), loadRecent(), loadAlerts(), loadByDimension(hours)]);
@@ -548,6 +870,7 @@ async function refreshAll() {
 document.getElementById('rangeSelect').addEventListener('change', refreshAll);
 refreshAll();
 setInterval(refreshAll, 30000); // auto-refresh toutes les 30s
+tryLoadConfigSection();
 </script>
 
 </body>
