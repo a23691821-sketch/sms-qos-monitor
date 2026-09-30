@@ -212,6 +212,26 @@
   tbody tr:last-child td { border-bottom: none; }
   tbody tr:hover { background: var(--surface-2); }
 
+  /* Tableau compact : une seule ligne visuelle par entrée, texte tronqué
+     avec "..." plutôt que de repasser à la ligne (utilisé pour l'historique
+     des tests manuels, qui a beaucoup de colonnes). Le texte complet reste
+     lisible via l'attribut title (tooltip au survol). */
+  .compact-table th, .compact-table td {
+    padding: 6px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .compact-table td.truncate {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .compact-table td.truncate-sm {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .route-name { font-weight: 500; }
   .route-meta { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
 
@@ -497,13 +517,14 @@
         <section>
           <div class="section-head"><h2>Tests récents</h2></div>
           <div class="table-card scroll-card">
-            <table>
+            <table class="compact-table">
               <thead>
                 <tr>
                   <th>Heure d'envoi</th>
                   <th>Route</th>
                   <th>Code</th>
                   <th>Latence</th>
+                  <th>DLR</th>
                   <th>Statut</th>
                 </tr>
               </thead>
@@ -562,7 +583,7 @@
                 <button class="btn btn-sm" id="manualHistoryRefreshBtn">Rafraîchir</button>
               </div>
               <div style="overflow-x:auto;">
-                <table class="data-table" id="manualHistoryTable">
+                <table class="data-table compact-table" id="manualHistoryTable">
                   <thead>
                     <tr>
                       <th>Envoyé le</th>
@@ -573,7 +594,7 @@
                       <th>Route / Opérateur</th>
                       <th>Appareil</th>
                       <th>Fournisseur</th>
-                      <th>Statut DLR</th>
+                      <th>DLR</th>
                       <th>Reçu sur téléphone</th>
                       <th>Statut final</th>
                     </tr>
@@ -979,14 +1000,15 @@ async function loadRecent() {
   const rows = await res.json();
   const body = document.getElementById('recentBody');
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="5" class="empty-state">Pas encore de test envoyé.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="empty-state">Pas encore de test envoyé.</td></tr>`;
     return;
   }
   body.innerHTML = rows.map(r => `<tr>
     <td class="mono">${fmtTime(r.sent_at)}</td>
-    <td>${r.route_name}</td>
+    <td class="truncate-sm" title="${escapeAttr(r.route_name)}">${r.route_name}</td>
     <td><code class="qcode mono">${r.code}</code></td>
     <td class="mono">${fmtMs(r.latency_ms)}</td>
+    <td>${manualHistoryDlrLabel(r.dlr_status, r.dlr_at)}</td>
     <td><span class="pill ${r.final_status}">${r.final_status}</span></td>
   </tr>`).join('');
 }
@@ -1280,7 +1302,9 @@ document.querySelectorAll('.sub-tab').forEach(btn => {
 
 document.getElementById('manualHistoryRefreshBtn').addEventListener('click', loadManualHistory);
 
-function manualHistoryDlrLabel(status) {
+// Statut + horodatage du DLR réunis dans une seule cellule, sur une seule
+// ligne ("Délivré · 12:03:04"), pour ne pas ajouter de colonne supplémentaire.
+function manualHistoryDlrLabel(status, dlrAt) {
   if (!status) return '<span style="color:var(--text-faint);">—</span>';
   const map = {
     delivered: ['var(--good)', 'Délivré'],
@@ -1290,7 +1314,8 @@ function manualHistoryDlrLabel(status) {
     rejected: ['var(--bad)', 'Rejeté'],
   };
   const [color, label] = map[status] || ['var(--text-dim)', status];
-  return `<span style="color:${color}; font-weight:600;">${escapeAttr(label)}</span>`;
+  const time = dlrAt ? ` <span style="color:var(--text-faint);">· ${fmtTimeOnly(dlrAt)}</span>` : '';
+  return `<span style="color:${color}; font-weight:600;">${escapeAttr(label)}</span>${time}`;
 }
 
 async function loadManualHistory() {
@@ -1305,16 +1330,16 @@ async function loadManualHistory() {
     }
     body.innerHTML = tests.map(t => `
       <tr>
-        <td>${fmtTimeOnly(t.sent_at)}</td>
-        <td style="font-family:'IBM Plex Mono', monospace; font-size:12px;">${escapeAttr(t.code)}</td>
-        <td>${escapeAttr(t.destination_number)}</td>
-        <td style="max-width:220px; white-space:normal;">${escapeAttr(t.message_body)}</td>
-        <td>${escapeAttr(t.sender_id || '—')}</td>
-        <td>${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}</td>
-        <td>${escapeAttr(t.device_name)}</td>
+        <td class="mono">${fmtTimeOnly(t.sent_at)}</td>
+        <td class="mono">${escapeAttr(t.code)}</td>
+        <td class="truncate-sm" title="${escapeAttr(t.destination_number)}">${escapeAttr(t.destination_number)}</td>
+        <td class="truncate" title="${escapeAttr(t.message_body)}">${escapeAttr(t.message_body)}</td>
+        <td class="truncate-sm">${escapeAttr(t.sender_id || '—')}</td>
+        <td class="truncate-sm" title="${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}">${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}</td>
+        <td class="truncate-sm" title="${escapeAttr(t.device_name)}">${escapeAttr(t.device_name)}</td>
         <td>${escapeAttr(t.provider_id)}</td>
-        <td>${manualHistoryDlrLabel(t.dlr_status)}</td>
-        <td>${t.received_at ? fmtTime(t.received_at) : '<span style="color:var(--text-faint);">—</span>'}</td>
+        <td>${manualHistoryDlrLabel(t.dlr_status, t.dlr_at)}</td>
+        <td class="mono">${t.received_at ? fmtTime(t.received_at) : '<span style="color:var(--text-faint);">—</span>'}</td>
         <td>${manualStatusPill(t.final_status)}</td>
       </tr>
     `).join('');
