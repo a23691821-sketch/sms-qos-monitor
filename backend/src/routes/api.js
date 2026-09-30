@@ -68,6 +68,23 @@ router.get("/devices", requireAdmin, (req, res) => {
   res.json(db.prepare(`SELECT id, name, phone_number, api_key, last_seen_at, created_at FROM devices`).all());
 });
 
+// Renomme un appareil et/ou corrige son numéro (jamais la clé API, qui ne
+// change que si l'appareil est recréé).
+router.patch("/devices/:id", requireAdmin, (req, res) => {
+  const { name, phoneNumber } = req.body || {};
+  const device = db.prepare(`SELECT * FROM devices WHERE id = ?`).get(req.params.id);
+  if (!device) return res.status(404).json({ error: "appareil introuvable" });
+
+  db.prepare(`
+    UPDATE devices SET
+      name = COALESCE(?, name),
+      phone_number = COALESCE(?, phone_number)
+    WHERE id = ?
+  `).run(name || null, phoneNumber === undefined ? null : (phoneNumber || ""), req.params.id);
+
+  res.json({ ok: true });
+});
+
 // ---------- Routes (couples fournisseur/pays/opérateur/SIM à tester) ----------
 
 router.post("/routes", requireAdmin, (req, res) => {

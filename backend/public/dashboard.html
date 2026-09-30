@@ -379,7 +379,7 @@
         <div class="table-card">
           <table>
             <thead>
-              <tr><th>Nom</th><th>Numéro</th><th>Vu pour la dernière fois</th><th></th></tr>
+              <tr><th>Nom</th><th>Numéro</th><th>Vu pour la dernière fois</th><th colspan="2"></th></tr>
             </thead>
             <tbody id="adminDevicesBody"></tbody>
           </table>
@@ -422,6 +422,9 @@ function pctColor(x) {
   if (x >= 0.95) return 'var(--good)';
   if (x >= 0.8) return 'var(--warn)';
   return 'var(--bad)';
+}
+function escapeAttr(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 function fmtTime(iso) {
   const d = new Date(iso);
@@ -727,7 +730,7 @@ function renderAdminRoutes(routes, devices) {
   }
   body.innerHTML = routes.map(r => `
     <tr data-route-id="${r.id}">
-      <td>${r.name}</td>
+      <td><input type="text" value="${escapeAttr(r.name)}" class="route-name-input" style="width:100%;" /></td>
       <td class="mono">${r.provider_id}</td>
       <td>${[r.country, r.operator].filter(Boolean).join(' / ') || '—'}</td>
       <td class="mono">${r.destination_number}</td>
@@ -756,6 +759,7 @@ function renderAdminRoutes(routes, devices) {
     btn.addEventListener('click', async () => {
       const row = btn.closest('tr');
       const routeId = row.dataset.routeId;
+      const name = row.querySelector('.route-name-input').value.trim();
       const intervalMinutes = parseInt(row.querySelector('.route-interval-input').value, 10);
       const active = row.querySelector('.route-active-toggle').dataset.active === '1';
       btn.textContent = '...';
@@ -763,7 +767,7 @@ function renderAdminRoutes(routes, devices) {
       try {
         await adminFetch(`/api/routes/${routeId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ intervalMinutes, active }),
+          body: JSON.stringify({ name, intervalMinutes, active }),
         });
         btn.textContent = 'Enregistré ✓';
         setTimeout(() => { btn.textContent = 'Enregistrer'; btn.disabled = false; }, 1500);
@@ -778,20 +782,44 @@ function renderAdminRoutes(routes, devices) {
 function renderAdminDevices(devices) {
   const body = document.getElementById('adminDevicesBody');
   if (!devices.length) {
-    body.innerHTML = `<tr><td colspan="4" class="empty-state">Aucun appareil. Crée-en un ci-dessous.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">Aucun appareil. Crée-en un ci-dessous.</td></tr>`;
     return;
   }
   body.innerHTML = devices.map(d => `
-    <tr>
-      <td>${d.name}</td>
-      <td class="mono">${d.phone_number || '—'}</td>
+    <tr data-device-id="${d.id}">
+      <td><input type="text" value="${escapeAttr(d.name)}" class="device-name-input" style="width:100%;" /></td>
+      <td><input type="text" value="${escapeAttr(d.phone_number || '')}" class="device-phone-input" placeholder="+336..." style="width:100%;" /></td>
       <td class="mono">${d.last_seen_at ? fmtTime(d.last_seen_at) : 'jamais'}</td>
+      <td><button class="btn btn-sm device-save-btn">Enregistrer</button></td>
       <td><button class="btn btn-sm device-showkey-btn" data-key="${d.api_key}">Voir la clé API</button></td>
     </tr>`).join('');
 
   body.querySelectorAll('.device-showkey-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       alert('Clé API pour l\'app Android :\n\n' + btn.dataset.key);
+    });
+  });
+
+  body.querySelectorAll('.device-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const deviceId = row.dataset.deviceId;
+      const name = row.querySelector('.device-name-input').value.trim();
+      const phoneNumber = row.querySelector('.device-phone-input').value.trim();
+      btn.textContent = '...';
+      btn.disabled = true;
+      try {
+        await adminFetch(`/api/devices/${deviceId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ name, phoneNumber }),
+        });
+        btn.textContent = 'Enregistré ✓';
+        setTimeout(() => { btn.textContent = 'Enregistrer'; btn.disabled = false; }, 1500);
+        await loadConfigSection();
+      } catch (e) {
+        btn.textContent = 'Erreur';
+        btn.disabled = false;
+      }
     });
   });
 }
