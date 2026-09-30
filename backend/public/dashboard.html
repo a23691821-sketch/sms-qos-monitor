@@ -1173,7 +1173,7 @@ function renderAdminRoutes(routes, devices) {
           <input type="text" value="${escapeAttr(r.operator || '')}" class="route-operator-input" placeholder="Opérateur" style="width:90px;" />
         </div>
       </td>
-      <td class="mono">${r.destination_number}</td>
+      <td><input type="text" value="${escapeAttr(r.destination_number)}" class="route-number-input mono" placeholder="+33..." style="width:100%;" /></td>
       <td>${r.device_name}</td>
       <td>
         <div class="interval-cell">
@@ -1202,6 +1202,7 @@ function renderAdminRoutes(routes, devices) {
       const name = row.querySelector('.route-name-input').value.trim();
       const country = row.querySelector('.route-country-input').value.trim();
       const operator = row.querySelector('.route-operator-input').value.trim();
+      const destinationNumber = row.querySelector('.route-number-input').value.trim();
       const intervalMinutes = parseInt(row.querySelector('.route-interval-input').value, 10);
       const active = row.querySelector('.route-active-toggle').dataset.active === '1';
       btn.textContent = '...';
@@ -1209,7 +1210,7 @@ function renderAdminRoutes(routes, devices) {
       try {
         await adminFetch(`/api/routes/${routeId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ name, country, operator, intervalMinutes, active }),
+          body: JSON.stringify({ name, country, operator, destinationNumber, intervalMinutes, active }),
         });
         btn.textContent = 'Enregistré ✓';
         setTimeout(() => { btn.textContent = 'Enregistrer'; btn.disabled = false; }, 1500);
