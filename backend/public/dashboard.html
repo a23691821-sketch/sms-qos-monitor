@@ -447,7 +447,7 @@
           </section>
 
           <section>
-            <div class="section-head"><h2>Latence moyenne (envoi → réception réelle)</h2></div>
+            <div class="section-head"><h2>Latence moyenne (envoi → réception réelle) — en cs (centièmes de seconde)</h2></div>
             <div class="chart-card" id="latencyChart"></div>
           </section>
         </div>
@@ -684,12 +684,13 @@ document.getElementById('logoutLink').addEventListener('click', async () => {
   window.location.href = '/login.html';
 });
 
+// Toutes les latences mesurées (envoi → réception, envoi → DLR) sont affichées
+// en centièmes de seconde (cs) plutôt qu'en s/min : les délais SMS sont assez
+// courts pour qu'un arrondi à la seconde masque des écarts significatifs.
+// 1 cs = 10 ms ; on garde une décimale, soit une précision de 1 ms.
 function fmtMs(ms) {
   if (ms == null) return '—';
-  if (ms < 1000) return ms + ' ms';
-  const s = ms / 1000;
-  if (s < 60) return s.toFixed(1) + ' s';
-  return (s / 60).toFixed(1) + ' min';
+  return (ms / 10).toFixed(1) + ' cs';
 }
 function fmtPct(x) {
   if (x == null) return '—';
@@ -952,10 +953,11 @@ async function loadTimeseries(hours) {
   const labels = series.map(s => fmtTime(s.time));
 
   const deliveryData = series.map(s => s.deliveryRate == null ? null : Math.round(s.deliveryRate * 1000) / 10);
-  const latencyData = series.map(s => s.avgLatencyMs == null ? null : Math.round(s.avgLatencyMs / 100) / 10);
+  // Centièmes de seconde (cs) plutôt que secondes, voir fmtMs plus haut.
+  const latencyData = series.map(s => s.avgLatencyMs == null ? null : Math.round(s.avgLatencyMs) / 10);
 
   renderLineChart('deliveryChart', labels, deliveryData, { color: '#3FB88F', suffix: '%', min: 0, max: 100 });
-  renderLineChart('latencyChart', labels, latencyData, { color: '#5B7FBF', suffix: 's', min: 0 });
+  renderLineChart('latencyChart', labels, latencyData, { color: '#5B7FBF', suffix: 'cs', min: 0 });
 }
 
 async function loadRecent() {
