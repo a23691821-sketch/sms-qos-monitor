@@ -176,9 +176,10 @@ router.get("/tests/:id", requireAdmin, (req, res) => {
 
   res.json({
     ...test,
-    // Le corps du SMS n'est pas stocké en base : il est entièrement déterminé
-    // par le code (voir idgen.js), donc reconstruit ici plutôt que dupliqué.
-    message_body: buildTestMessageBody(test.code),
+    // Les tests envoyés avant l'ajout de la colonne "body" n'ont rien
+    // d'enregistré (contenu personnalisé impossible à l'époque) : on retombe
+    // sur le texte par défaut reconstruit à partir du code dans ce seul cas.
+    message_body: test.body || buildTestMessageBody(test.code),
     dlr_raw: dlrEvent ? dlrEvent.raw_body : null,
     dlr_received_at: dlrEvent ? dlrEvent.received_at : null,
   });

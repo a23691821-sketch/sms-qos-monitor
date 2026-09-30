@@ -80,4 +80,13 @@ CREATE TABLE IF NOT EXISTS dlr_events (
 );
 `);
 
+// Migration : la page "Test manuel" permet un contenu personnalisé, donc le
+// corps du SMS n'est plus toujours déductible du seul code (voir idgen.js).
+// Ajouté après coup avec ALTER TABLE (CREATE TABLE IF NOT EXISTS ne modifie
+// pas une table déjà existante) ; sans effet si la colonne existe déjà.
+const testMessageColumns = db.prepare("PRAGMA table_info(test_messages)").all().map((c) => c.name);
+if (!testMessageColumns.includes("body")) {
+  db.exec("ALTER TABLE test_messages ADD COLUMN body TEXT");
+}
+
 module.exports = db;

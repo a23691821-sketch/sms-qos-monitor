@@ -21,10 +21,10 @@ async function runTestForRoute(route, overrides = {}) {
   const sentAt = new Date().toISOString();
 
   const insert = db.prepare(`
-    INSERT INTO test_messages (route_id, code, sent_at, provider_status, final_status)
-    VALUES (?, ?, ?, 'sending', 'pending')
+    INSERT INTO test_messages (route_id, code, sent_at, body, provider_status, final_status)
+    VALUES (?, ?, ?, ?, 'sending', 'pending')
   `);
-  const { lastInsertRowid: testId } = insert.run(route.id, code, sentAt);
+  const { lastInsertRowid: testId } = insert.run(route.id, code, sentAt, body);
 
   try {
     const result = await sendTestSms(route.provider_id, { to: route.destination_number, body, senderId: overrides.senderId });
