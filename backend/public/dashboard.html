@@ -447,7 +447,7 @@
           </section>
 
           <section>
-            <div class="section-head"><h2>Latence moyenne (envoi → réception réelle) — en cs (centièmes de seconde)</h2></div>
+            <div class="section-head"><h2>Latence moyenne (envoi → réception réelle) — en secondes</h2></div>
             <div class="chart-card" id="latencyChart"></div>
           </section>
         </div>
@@ -685,12 +685,12 @@ document.getElementById('logoutLink').addEventListener('click', async () => {
 });
 
 // Toutes les latences mesurées (envoi → réception, envoi → DLR) sont affichées
-// en centièmes de seconde (cs) plutôt qu'en s/min : les délais SMS sont assez
-// courts pour qu'un arrondi à la seconde masque des écarts significatifs.
-// 1 cs = 10 ms ; on garde une décimale, soit une précision de 1 ms.
+// en secondes avec 2 décimales (précision au centième de seconde), sans
+// jamais basculer vers les minutes : les délais SMS sont assez courts pour
+// qu'un arrondi grossier masque des écarts significatifs.
 function fmtMs(ms) {
   if (ms == null) return '—';
-  return (ms / 10).toFixed(1) + ' cs';
+  return (ms / 1000).toFixed(2) + ' s';
 }
 function fmtPct(x) {
   if (x == null) return '—';
@@ -705,9 +705,24 @@ function pctColor(x) {
 function escapeAttr(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
+// Format complet (jour, heure, minute, seconde) — utilisé partout où l'heure
+// exacte d'un événement compte (heure d'envoi, réception sur le téléphone...).
 function fmtTime(iso) {
   const d = new Date(iso);
+  return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+// Version courte (sans les secondes) réservée aux libellés des graphiques,
+// pour éviter de surcharger l'axe des X.
+function fmtTimeShort(iso) {
+  const d = new Date(iso);
   return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+// Heure seule (sans le jour) — utilisée pour la colonne "Envoyé le" de
+// l'historique des tests manuels, où le jour est déjà visible dans le
+// contexte de la session de test.
+function fmtTimeOnly(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 let currentDimension = 'country';
@@ -950,14 +965,13 @@ async function loadTimeseries(hours) {
   const bucketMinutes = await getBucketMinutes(hours);
   const res = await sessionFetch(`${API}/api/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutes}`);
   const series = await res.json();
-  const labels = series.map(s => fmtTime(s.time));
+  const labels = series.map(s => fmtTimeShort(s.time));
 
   const deliveryData = series.map(s => s.deliveryRate == null ? null : Math.round(s.deliveryRate * 1000) / 10);
-  // Centièmes de seconde (cs) plutôt que secondes, voir fmtMs plus haut.
-  const latencyData = series.map(s => s.avgLatencyMs == null ? null : Math.round(s.avgLatencyMs) / 10);
+  const latencyData = series.map(s => s.avgLatencyMs == null ? null : Math.round(s.avgLatencyMs) / 1000);
 
   renderLineChart('deliveryChart', labels, deliveryData, { color: '#3FB88F', suffix: '%', min: 0, max: 100 });
-  renderLineChart('latencyChart', labels, latencyData, { color: '#5B7FBF', suffix: 'cs', min: 0 });
+  renderLineChart('latencyChart', labels, latencyData, { color: '#5B7FBF', suffix: 's', min: 0 });
 }
 
 async function loadRecent() {
@@ -1291,7 +1305,7 @@ async function loadManualHistory() {
     }
     body.innerHTML = tests.map(t => `
       <tr>
-        <td>${fmtTime(t.sent_at)}</td>
+        <td>${fmtTimeOnly(t.sent_at)}</td>
         <td style="font-family:'IBM Plex Mono', monospace; font-size:12px;">${escapeAttr(t.code)}</td>
         <td>${escapeAttr(t.destination_number)}</td>
         <td style="max-width:220px; white-space:normal;">${escapeAttr(t.message_body)}</td>
