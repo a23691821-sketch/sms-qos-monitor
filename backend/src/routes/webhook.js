@@ -55,13 +55,48 @@ router.post("/sms-received", (req, res) => {
 // les noms de champs ci-dessous si besoin.
 const MESSAGE_ID_FIELDS = ["messageId", "message_id", "id_state", "id", "sms_id", "smsId"];
 const STATUS_FIELDS = ["status", "state", "dlr_status", "delivery_status"];
-const DELIVERED_SYNONYMS = new Set(["delivered", "delivered_to_terminal", "success", "ok", "3", "true"]);
+const DELIVERED_SYNONYMS = new Set([
+  "delivered", "delivered_to_terminal", "success", "ok", "3", "true",
+  "delivrd", // Emettance envoie l'état SMPP brut "DELIVRD"
+]);
 
 function firstDefined(obj, keys) {
   for (const k of keys) {
     if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k];
   }
   return null;
+}
+
+function normalizeStatus(rawStatus) {
+  if (rawStatus == null) return "unknown";
+  const s = String(rawStatus).toLowerCase();
+  return DELIVERED_SYNONYMS.has(s) ? "delivered" : s;
+}
+
+// Extrait une ou plusieurs entrées (idState, status) d'un payload de DLR.
+// Deux formats sont supportés :
+//  1. Plat : les champs id/status sont directement à la racine du payload
+//     (format générique attendu par défaut).
+//  2. Emettance : un objet dont les clés sont des index numériques ("0", "1", ...
+//     un par partie de SMS), chacun contenant { id_state, state, ... }. Utile
+//     aussi pour les envois multi-parties (num_parts > 1).
+function extractEntries(payload) {
+  const flatId = firstDefined(payload, MESSAGE_ID_FIELDS);
+  if (flatId) {
+    return [{ idState: flatId, status: firstDefined(payload, STATUS_FIELDS) }];
+  }
+
+  const entries = [];
+  for (const key of Object.keys(payload)) {
+    const val = payload[key];
+    if (val && typeof val === "object") {
+      const idState = firstDefined(val, MESSAGE_ID_FIELDS);
+      if (idState) {
+        entries.push({ idState, status: firstDefined(val, STATUS_FIELDS) });
+      }
+    }
+  }
+  return entries;
 }
 
 function handleDlr(req, res) {
@@ -72,37 +107,46 @@ function handleDlr(req, res) {
     .prepare(`INSERT INTO dlr_events (provider_id, matched_test_id, raw_body) VALUES (?, NULL, ?)`)
     .run(providerId, JSON.stringify(payload));
 
-  const messageId = firstDefined(payload, MESSAGE_ID_FIELDS);
-  const rawStatus = firstDefined(payload, STATUS_FIELDS);
+  const entries = extractEntries(payload);
 
-  if (!messageId) {
+  if (!entries.length) {
     console.warn(`[dlr:${providerId}] payload sans ID de message reconnu:`, JSON.stringify(payload));
     return res.json({ matched: false, reason: "aucun champ d'ID de message reconnu, voir dlr_events pour le payload brut" });
   }
 
-  const testMsg = db
-    .prepare(`SELECT * FROM test_messages WHERE provider_message_id = ? OR provider_message_id LIKE ?`)
-    .get(String(messageId), `${messageId}.%`);
+  const results = [];
+  let firstMatchedTestId = null;
 
-  if (!testMsg) {
-    console.warn(`[dlr:${providerId}] aucun test correspondant à messageId=${messageId}`);
-    return res.json({ matched: false, reason: "messageId inconnu (déjà nettoyé, ou ne correspond à aucun test)" });
+  for (const entry of entries) {
+    const idState = String(entry.idState);
+    const testMsg = db
+      .prepare(`SELECT * FROM test_messages WHERE provider_message_id = ? OR provider_message_id LIKE ?`)
+      .get(idState, `${idState}.%`);
+
+    if (!testMsg) {
+      console.warn(`[dlr:${providerId}] aucun test correspondant à idState=${idState}`);
+      results.push({ idState, matched: false });
+      continue;
+    }
+
+    const normalizedStatus = normalizeStatus(entry.status);
+    const dlrAt = new Date().toISOString();
+    const dlrLatency = new Date(dlrAt).getTime() - new Date(testMsg.sent_at).getTime();
+
+    db.prepare(`
+      UPDATE test_messages SET dlr_status = ?, dlr_at = ?, dlr_latency_ms = ? WHERE id = ?
+    `).run(normalizedStatus, dlrAt, dlrLatency, testMsg.id);
+
+    if (firstMatchedTestId === null) firstMatchedTestId = testMsg.id;
+    results.push({ idState, matched: true, testId: testMsg.id, normalizedStatus });
   }
 
-  const normalizedStatus = rawStatus != null && DELIVERED_SYNONYMS.has(String(rawStatus).toLowerCase())
-    ? "delivered"
-    : (rawStatus != null ? String(rawStatus).toLowerCase() : "unknown");
+  db.prepare(`UPDATE dlr_events SET matched_test_id = ? WHERE id = ?`).run(
+    firstMatchedTestId,
+    dlrEventInsert.lastInsertRowid
+  );
 
-  const dlrAt = new Date().toISOString();
-  const dlrLatency = new Date(dlrAt).getTime() - new Date(testMsg.sent_at).getTime();
-
-  db.prepare(`
-    UPDATE test_messages SET dlr_status = ?, dlr_at = ?, dlr_latency_ms = ? WHERE id = ?
-  `).run(normalizedStatus, dlrAt, dlrLatency, testMsg.id);
-
-  db.prepare(`UPDATE dlr_events SET matched_test_id = ? WHERE id = ?`).run(testMsg.id, dlrEventInsert.lastInsertRowid);
-
-  res.json({ matched: true, testId: testMsg.id, normalizedStatus });
+  res.json({ matched: firstMatchedTestId !== null, results });
 }
 
 router.post("/dlr/:providerId", handleDlr);
