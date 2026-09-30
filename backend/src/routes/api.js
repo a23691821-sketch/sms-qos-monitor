@@ -149,7 +149,7 @@ router.post("/routes/:id/run-now", requireAdmin, async (req, res) => {
   const route = db.prepare(`SELECT * FROM routes WHERE id = ?`).get(req.params.id);
   if (!route) return res.status(404).json({ error: "route introuvable" });
   const { content, senderId } = req.body || {};
-  const testId = await runTestForRoute(route, { content, senderId });
+  const testId = await runTestForRoute(route, { content, senderId, triggerType: "manual" });
   res.json({ ok: true, testId });
 });
 
@@ -183,6 +183,41 @@ router.get("/tests/:id", requireAdmin, (req, res) => {
     dlr_raw: dlrEvent ? dlrEvent.raw_body : null,
     dlr_received_at: dlrEvent ? dlrEvent.received_at : null,
   });
+});
+
+// Historique des tests lancés à la main depuis la page "Test manuel" (une
+// ligne par envoi). Volontairement séparé des stats QoS globales (qui ne
+// portent que sur les tests planifiés) — voir trigger_type dans db.js.
+// MCC/MNC ne sont pas exposés ici (demande explicite: pas nécessaires pour
+// cette vue historique).
+router.get("/tests", requireAdmin, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+
+  const tests = db
+    .prepare(`
+      SELECT
+        t.id, t.code, t.sent_at, t.body, t.sender_id,
+        t.provider_status, t.final_status,
+        t.dlr_status, t.dlr_at,
+        t.received_at, t.received_from_number,
+        t.latency_ms, t.dlr_latency_ms,
+        r.name as route_name, r.provider_id, r.operator,
+        r.destination_number, d.name as device_name
+      FROM test_messages t
+      JOIN routes r ON r.id = t.route_id
+      JOIN devices d ON d.id = r.device_id
+      WHERE t.trigger_type = 'manual'
+      ORDER BY t.id DESC
+      LIMIT ?
+    `)
+    .all(limit);
+
+  res.json(
+    tests.map((t) => ({
+      ...t,
+      message_body: t.body || buildTestMessageBody(t.code),
+    }))
+  );
 });
 
 // ---------- Stats pour le dashboard ----------

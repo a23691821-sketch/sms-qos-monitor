@@ -12,19 +12,28 @@ const lastRunByRoute = new Map();
 // Retourne l'id du test créé : permet à l'appelant (ex: bouton "Lancer un
 // test" du dashboard) de suivre ce test précis immédiatement, plutôt que
 // d'attendre le prochain cycle planifié ou de deviner quel id vient d'être créé.
-// `overrides` (optionnel) : { content, senderId } — utilisé par la page
-// "Test manuel" pour personnaliser un envoi ponctuel ; le cycle planifié
-// normal (tickRoutes) n'en passe jamais.
+// `overrides` (optionnel) : { content, senderId, triggerType } — utilisé par
+// la page "Test manuel" pour personnaliser un envoi ponctuel et le marquer
+// comme tel (triggerType: 'manual') ; le cycle planifié normal (tickRoutes)
+// n'en passe jamais, donc reste 'scheduled' par défaut.
 async function runTestForRoute(route, overrides = {}) {
   const code = generateTestCode();
   const body = buildTestMessageBody(code, overrides.content);
   const sentAt = new Date().toISOString();
+  const triggerType = overrides.triggerType === "manual" ? "manual" : "scheduled";
 
   const insert = db.prepare(`
-    INSERT INTO test_messages (route_id, code, sent_at, body, provider_status, final_status)
-    VALUES (?, ?, ?, ?, 'sending', 'pending')
+    INSERT INTO test_messages (route_id, code, sent_at, body, trigger_type, sender_id, provider_status, final_status)
+    VALUES (?, ?, ?, ?, ?, ?, 'sending', 'pending')
   `);
-  const { lastInsertRowid: testId } = insert.run(route.id, code, sentAt, body);
+  const { lastInsertRowid: testId } = insert.run(
+    route.id,
+    code,
+    sentAt,
+    body,
+    triggerType,
+    overrides.senderId && overrides.senderId.trim() ? overrides.senderId.trim() : null
+  );
 
   try {
     const result = await sendTestSms(route.provider_id, { to: route.destination_number, body, senderId: overrides.senderId });

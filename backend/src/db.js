@@ -88,5 +88,16 @@ const testMessageColumns = db.prepare("PRAGMA table_info(test_messages)").all().
 if (!testMessageColumns.includes("body")) {
   db.exec("ALTER TABLE test_messages ADD COLUMN body TEXT");
 }
+// trigger_type distingue les tests du cycle planifié ("scheduled", valeur par
+// défaut) de ceux lancés à la main depuis la page "Test manuel" ("manual"),
+// pour pouvoir filtrer l'historique de cette page sans polluer les stats QoS
+// globales. sender_id enregistre la valeur réellement utilisée pour CE test
+// (vide = valeur par défaut du fournisseur, jamais surchargée).
+if (!testMessageColumns.includes("trigger_type")) {
+  db.exec("ALTER TABLE test_messages ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'scheduled'");
+}
+if (!testMessageColumns.includes("sender_id")) {
+  db.exec("ALTER TABLE test_messages ADD COLUMN sender_id TEXT");
+}
 
 module.exports = db;

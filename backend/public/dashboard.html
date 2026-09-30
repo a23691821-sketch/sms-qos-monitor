@@ -284,6 +284,12 @@
   }
   .dim-tab.active { background: var(--good-dim); border-color: var(--good); color: var(--good); }
 
+  .sub-tab {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--text-dim);
+    border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  .sub-tab.active { background: var(--good-dim); border-color: var(--good); color: var(--good); }
+
   .config-card {
     background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
     box-shadow: var(--shadow);
@@ -515,32 +521,70 @@
         </div>
 
         <div id="manualPanel" style="display:none;">
-          <div class="config-card">
-            <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
-              <div style="flex:1; min-width:240px;">
-                <label style="display:block; font-size:11px; color:var(--text-faint); margin-bottom:4px;">Route à tester</label>
-                <select id="manualRouteSelect" style="width:100%;"></select>
-              </div>
-              <button class="btn btn-primary" id="manualRunBtn">Lancer un test</button>
-            </div>
-
-            <div class="form-grid" style="margin-top:14px;">
-              <div style="grid-column: span 2;">
-                <label>Contenu du message (optionnel)</label>
-                <input id="manualContent" type="text" placeholder="Laisser vide pour le message par défaut" style="width:100%;" />
-              </div>
-              <div>
-                <label>Sender ID (optionnel)</label>
-                <input id="manualSenderId" type="text" placeholder="Laisser vide pour la valeur par défaut" style="width:100%;" />
-              </div>
-            </div>
-            <div style="font-size:11px; color:var(--text-faint); margin-top:6px;">
-              Le code de suivi (ex: QOS-XK4D2A) est toujours ajouté automatiquement à la fin du message : c'est lui qui permet de vérifier la réception réelle sur le téléphone.
-            </div>
-            <div class="config-msg" id="manualRunMsg" style="margin-top:10px;"></div>
+          <div class="sub-tabs" style="display:flex; gap:6px; margin-bottom:14px;">
+            <button class="sub-tab active" id="manualTabRun" data-subtab="run">Lancer un test</button>
+            <button class="sub-tab" id="manualTabHistory" data-subtab="history">Historique</button>
           </div>
 
-          <div id="manualResultCard" style="display:none;"></div>
+          <div id="manualSubpageRun">
+            <div class="config-card">
+              <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+                <div style="flex:1; min-width:240px;">
+                  <label style="display:block; font-size:11px; color:var(--text-faint); margin-bottom:4px;">Route à tester</label>
+                  <select id="manualRouteSelect" style="width:100%;"></select>
+                </div>
+                <button class="btn btn-primary" id="manualRunBtn">Lancer un test</button>
+              </div>
+
+              <div class="form-grid" style="margin-top:14px;">
+                <div style="grid-column: span 2;">
+                  <label>Contenu du message (optionnel)</label>
+                  <input id="manualContent" type="text" placeholder="Laisser vide pour le message par défaut" style="width:100%;" />
+                </div>
+                <div>
+                  <label>Sender ID (optionnel)</label>
+                  <input id="manualSenderId" type="text" placeholder="Laisser vide pour la valeur par défaut" style="width:100%;" />
+                </div>
+              </div>
+              <div style="font-size:11px; color:var(--text-faint); margin-top:6px;">
+                Le code de suivi (ex: QOS-XK4D2A) est toujours ajouté automatiquement à la fin du message : c'est lui qui permet de vérifier la réception réelle sur le téléphone.
+              </div>
+              <div class="config-msg" id="manualRunMsg" style="margin-top:10px;"></div>
+            </div>
+
+            <div id="manualResultCard" style="display:none;"></div>
+          </div>
+
+          <div id="manualSubpageHistory" style="display:none;">
+            <div class="table-card">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="margin:0; font-size:14px;">Historique des tests manuels</h3>
+                <button class="btn btn-sm" id="manualHistoryRefreshBtn">Rafraîchir</button>
+              </div>
+              <div style="overflow-x:auto;">
+                <table class="data-table" id="manualHistoryTable">
+                  <thead>
+                    <tr>
+                      <th>Envoyé le</th>
+                      <th>Code</th>
+                      <th>Destinataire</th>
+                      <th>Message</th>
+                      <th>Sender ID</th>
+                      <th>Route / Opérateur</th>
+                      <th>Appareil</th>
+                      <th>Fournisseur</th>
+                      <th>Statut DLR</th>
+                      <th>Reçu sur téléphone</th>
+                      <th>Statut final</th>
+                    </tr>
+                  </thead>
+                  <tbody id="manualHistoryBody">
+                    <tr><td colspan="11" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1202,6 +1246,66 @@ async function loadManualPage() {
     showManualPanel();
   } catch (e) {
     showManualLock();
+  }
+}
+
+// ---------- Sous-page "Historique" (tests manuels uniquement) ----------
+
+document.querySelectorAll('.sub-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const sub = btn.dataset.subtab;
+    document.getElementById('manualSubpageRun').style.display = sub === 'run' ? 'block' : 'none';
+    document.getElementById('manualSubpageHistory').style.display = sub === 'history' ? 'block' : 'none';
+    if (sub === 'history') loadManualHistory();
+  });
+});
+
+document.getElementById('manualHistoryRefreshBtn').addEventListener('click', loadManualHistory);
+
+function manualHistoryDlrLabel(status) {
+  if (!status) return '<span style="color:var(--text-faint);">—</span>';
+  const map = {
+    delivered: ['var(--good)', 'Délivré'],
+    failed: ['var(--bad)', 'Échec'],
+    undelivered: ['var(--bad)', 'Non délivré'],
+    expired: ['var(--warn)', 'Expiré'],
+    rejected: ['var(--bad)', 'Rejeté'],
+  };
+  const [color, label] = map[status] || ['var(--text-dim)', status];
+  return `<span style="color:${color}; font-weight:600;">${escapeAttr(label)}</span>`;
+}
+
+async function loadManualHistory() {
+  const body = document.getElementById('manualHistoryBody');
+  body.innerHTML = '<tr><td colspan="11" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>';
+  try {
+    const res = await adminFetch('/api/tests?limit=100');
+    const tests = await res.json();
+    if (!tests.length) {
+      body.innerHTML = '<tr><td colspan="11" style="text-align:center; color:var(--text-faint);">Aucun test manuel pour le moment.</td></tr>';
+      return;
+    }
+    body.innerHTML = tests.map(t => `
+      <tr>
+        <td>${fmtTime(t.sent_at)}</td>
+        <td style="font-family:'IBM Plex Mono', monospace; font-size:12px;">${escapeAttr(t.code)}</td>
+        <td>${escapeAttr(t.destination_number)}</td>
+        <td style="max-width:220px; white-space:normal;">${escapeAttr(t.message_body)}</td>
+        <td>${escapeAttr(t.sender_id || '—')}</td>
+        <td>${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}</td>
+        <td>${escapeAttr(t.device_name)}</td>
+        <td>${escapeAttr(t.provider_id)}</td>
+        <td>${manualHistoryDlrLabel(t.dlr_status)}</td>
+        <td>${t.received_at ? fmtTime(t.received_at) : '<span style="color:var(--text-faint);">—</span>'}</td>
+        <td>${manualStatusPill(t.final_status)}</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') {
+      body.innerHTML = '<tr><td colspan="11" style="text-align:center; color:var(--bad);">Erreur de chargement.</td></tr>';
+    }
   }
 }
 
