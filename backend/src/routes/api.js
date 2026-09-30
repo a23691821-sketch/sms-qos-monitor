@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const db = require("./../db");
 const { runTestForRoute } = require("./../scheduler");
 const { loadProviderConfigs } = require("./../providers");
+const { buildTestMessageBody } = require("./../idgen");
 
 const router = express.Router();
 
@@ -147,8 +148,39 @@ router.patch("/routes/:id", requireAdmin, (req, res) => {
 router.post("/routes/:id/run-now", requireAdmin, async (req, res) => {
   const route = db.prepare(`SELECT * FROM routes WHERE id = ?`).get(req.params.id);
   if (!route) return res.status(404).json({ error: "route introuvable" });
-  await runTestForRoute(route);
-  res.json({ ok: true });
+  const testId = await runTestForRoute(route);
+  res.json({ ok: true, testId });
+});
+
+// Détail complet d'un test (utilisé par la page "Test manuel" pour suivre en
+// direct un test qu'on vient de lancer soi-même : contenu envoyé, réponse
+// fournisseur brute, réception réelle par le téléphone, et le DLR brut associé
+// si un webhook fournisseur l'a déjà relié via dlr_events.matched_test_id).
+router.get("/tests/:id", requireAdmin, (req, res) => {
+  const test = db
+    .prepare(`
+      SELECT t.*, r.name as route_name, r.provider_id, r.country, r.operator,
+             r.destination_number, d.name as device_name
+      FROM test_messages t
+      JOIN routes r ON r.id = t.route_id
+      JOIN devices d ON d.id = r.device_id
+      WHERE t.id = ?
+    `)
+    .get(req.params.id);
+  if (!test) return res.status(404).json({ error: "test introuvable" });
+
+  const dlrEvent = db
+    .prepare(`SELECT raw_body, received_at FROM dlr_events WHERE matched_test_id = ? ORDER BY id DESC LIMIT 1`)
+    .get(req.params.id);
+
+  res.json({
+    ...test,
+    // Le corps du SMS n'est pas stocké en base : il est entièrement déterminé
+    // par le code (voir idgen.js), donc reconstruit ici plutôt que dupliqué.
+    message_body: buildTestMessageBody(test.code),
+    dlr_raw: dlrEvent ? dlrEvent.raw_body : null,
+    dlr_received_at: dlrEvent ? dlrEvent.received_at : null,
+  });
 });
 
 // ---------- Stats pour le dashboard ----------

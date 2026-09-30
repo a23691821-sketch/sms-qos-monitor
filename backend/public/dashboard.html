@@ -321,6 +321,46 @@
   .config-msg { font-size: 12px; margin-top: 8px; }
   .config-msg.ok { color: var(--good); }
   .config-msg.err { color: var(--bad); }
+
+  /* ---------- Page "Test manuel" ---------- */
+
+  .ml-info-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;
+    font-size: 13px; margin-bottom: 16px;
+  }
+  .ml-info-grid > div { display: flex; flex-direction: column; gap: 3px; }
+  .ml-label { font-size: 11px; color: var(--text-faint); }
+
+  .ml-message-box {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 14px; font-size: 13px; margin-bottom: 22px;
+  }
+
+  .ml-timeline { display: flex; flex-direction: column; }
+  .ml-step { display: flex; gap: 12px; padding-bottom: 22px; position: relative; }
+  .ml-step:last-child { padding-bottom: 0; }
+  .ml-step:not(:last-child)::before {
+    content: ''; position: absolute; left: 5px; top: 16px; bottom: 0; width: 2px; background: var(--line);
+  }
+  .ml-step-dot {
+    width: 12px; height: 12px; border-radius: 50%; background: var(--line);
+    border: 2px solid var(--surface); flex-shrink: 0; margin-top: 2px; z-index: 1;
+  }
+  .ml-step.done .ml-step-dot { background: var(--good); }
+  .ml-step.pending .ml-step-dot { background: var(--warn); }
+  .ml-step-title { font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+  .ml-meta { font-size: 12.5px; color: var(--text-dim); }
+  .ml-waiting { font-style: italic; }
+  .ml-raw { margin-top: 8px; font-size: 12px; }
+  .ml-raw summary { cursor: pointer; color: var(--text-dim); }
+  .ml-raw pre {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 10px; overflow-x: auto; margin-top: 6px; font-size: 11.5px;
+  }
+  .ml-dlr-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-top: 10px;
+  }
+  .ml-dlr-grid > div { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
 </style>
 </head>
 <body>
@@ -351,6 +391,9 @@
       </button>
       <button class="nav-item" data-page="recent" data-title="Tests récents">
         <span class="nav-icon">≣</span>Tests récents
+      </button>
+      <button class="nav-item" data-page="manual" data-title="Test manuel">
+        <span class="nav-icon">▶</span>Test manuel
       </button>
       <button class="nav-item" data-page="config" data-title="Configuration">
         <span class="nav-icon" id="navConfigIcon">🔒</span>Configuration
@@ -462,6 +505,29 @@
             </table>
           </div>
         </section>
+      </div>
+
+      <div class="page" data-page="manual" hidden>
+        <div class="config-card" id="manualLockCard" style="display:none;">
+          <p style="margin:0; font-size:13px; color:var(--text-dim);">
+            Connecte-toi d'abord depuis la page <strong>Configuration</strong> (clé admin) pour lancer des tests manuels.
+          </p>
+        </div>
+
+        <div id="manualPanel" style="display:none;">
+          <div class="config-card">
+            <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+              <div style="flex:1; min-width:240px;">
+                <label style="display:block; font-size:11px; color:var(--text-faint); margin-bottom:4px;">Route à tester</label>
+                <select id="manualRouteSelect" style="width:100%;"></select>
+              </div>
+              <button class="btn btn-primary" id="manualRunBtn">Lancer un test</button>
+            </div>
+            <div class="config-msg" id="manualRunMsg" style="margin-top:10px;"></div>
+          </div>
+
+          <div id="manualResultCard" style="display:none;"></div>
+        </div>
       </div>
 
       <div class="page" data-page="config" hidden>
@@ -782,8 +848,10 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     document.querySelectorAll('.page').forEach(p => { p.hidden = p.dataset.page !== page; });
     document.getElementById('pageTitle').textContent = btn.dataset.title || btn.textContent.trim();
 
-    // Le sélecteur de période et l'export CSV n'ont pas de sens sur la page Configuration
-    document.getElementById('topbarControls').style.display = page === 'config' ? 'none' : 'flex';
+    // Le sélecteur de période et l'export CSV n'ont pas de sens sur ces pages
+    document.getElementById('topbarControls').style.display = (page === 'config' || page === 'manual') ? 'none' : 'flex';
+
+    if (page === 'manual') loadManualPage();
   });
 });
 
@@ -1094,6 +1162,177 @@ document.getElementById('createDeviceBtn').addEventListener('click', async () =>
     if (e.message !== 'admin_unauthorized') { msg.textContent = 'Erreur lors de la création.'; msg.className = 'config-msg err'; }
   }
 });
+
+// ---------- Page "Test manuel" ----------
+
+let manualPollTimer = null;
+
+function showManualLock() {
+  document.getElementById('manualPanel').style.display = 'none';
+  document.getElementById('manualLockCard').style.display = 'block';
+}
+function showManualPanel() {
+  document.getElementById('manualLockCard').style.display = 'none';
+  document.getElementById('manualPanel').style.display = 'block';
+}
+
+async function loadManualPage() {
+  if (!getAdminKey()) { showManualLock(); return; }
+  try {
+    const res = await adminFetch('/api/routes');
+    const routes = await res.json();
+    const sel = document.getElementById('manualRouteSelect');
+    sel.innerHTML = routes.length
+      ? routes.map(r => `<option value="${r.id}">${escapeAttr(r.name)} — ${escapeAttr(r.provider_id)} (${escapeAttr(r.destination_number)})</option>`).join('')
+      : '<option value="">(aucune route configurée — crée-en une dans Configuration)</option>';
+    showManualPanel();
+  } catch (e) {
+    showManualLock();
+  }
+}
+
+document.getElementById('manualRunBtn').addEventListener('click', async () => {
+  const routeId = document.getElementById('manualRouteSelect').value;
+  const msg = document.getElementById('manualRunMsg');
+  if (!routeId) { msg.textContent = 'Aucune route sélectionnée.'; msg.className = 'config-msg err'; return; }
+
+  if (manualPollTimer) { clearTimeout(manualPollTimer); manualPollTimer = null; }
+  document.getElementById('manualResultCard').style.display = 'none';
+
+  const btn = document.getElementById('manualRunBtn');
+  btn.disabled = true;
+  btn.textContent = 'Envoi...';
+  msg.textContent = '';
+  msg.className = 'config-msg';
+
+  try {
+    const res = await adminFetch(`/api/routes/${routeId}/run-now`, { method: 'POST' });
+    const data = await res.json();
+    msg.textContent = 'Test envoyé, suivi en direct ci-dessous...';
+    msg.className = 'config-msg ok';
+    pollManualTest(data.testId);
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') { msg.textContent = 'Erreur lors du lancement du test.'; msg.className = 'config-msg err'; }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Lancer un test';
+  }
+});
+
+// Poll toutes les 2s pendant 90s max : largement suffisant vu les latences
+// réelles observées (réception en quelques secondes, DLR en ~10-15s), tout en
+// s'arrêtant tout seul si un fournisseur ne répond jamais.
+function pollManualTest(testId) {
+  let attempts = 0;
+  const maxAttempts = 45;
+
+  const poll = async () => {
+    attempts++;
+    let test;
+    try {
+      const res = await adminFetch(`/api/tests/${testId}`);
+      test = await res.json();
+    } catch (e) {
+      return; // adminFetch gère déjà la session/clé invalide
+    }
+
+    renderManualResult(test);
+
+    const settled = test.final_status !== 'pending' && test.dlr_status;
+    if (!settled && attempts < maxAttempts) {
+      manualPollTimer = setTimeout(poll, 2000);
+    }
+  };
+  poll();
+}
+
+function parseDlrRaw(raw) {
+  if (!raw) return null;
+  let obj;
+  try { obj = JSON.parse(raw); } catch (e) { return null; }
+  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+    if (obj.originator || obj.state || obj.phone || obj.id_state) return obj;
+    for (const key of Object.keys(obj)) {
+      if (obj[key] && typeof obj[key] === 'object') return obj[key];
+    }
+  }
+  return obj;
+}
+
+function manualStatusPill(status) {
+  const known = ['delivered', 'failed', 'timeout', 'pending'];
+  const cls = known.includes(status) ? status : 'pending';
+  const label = { delivered: 'Délivré', failed: 'Échec', timeout: 'Timeout', pending: 'En cours' }[cls];
+  return `<span class="pill ${cls}">${label}</span>`;
+}
+
+function manualTimelineStep(title, state, bodyHtml) {
+  // state: 'done' | 'pending' | ''
+  return `
+    <div class="ml-step ${state}">
+      <div class="ml-step-dot"></div>
+      <div>
+        <div class="ml-step-title">${title}</div>
+        ${bodyHtml}
+      </div>
+    </div>`;
+}
+
+function renderManualResult(test) {
+  const card = document.getElementById('manualResultCard');
+  card.style.display = 'block';
+
+  const dlrDetails = parseDlrRaw(test.dlr_raw);
+  let providerRawPretty = '';
+  try { providerRawPretty = JSON.stringify(JSON.parse(test.provider_response), null, 2); } catch (e) { providerRawPretty = test.provider_response || ''; }
+
+  const sentBody = `
+    <div class="ml-meta">Envoyé à ${fmtTime(test.sent_at)} — statut fournisseur : <span class="mono">${test.provider_status || '—'}</span></div>
+    ${providerRawPretty ? `<details class="ml-raw"><summary>Réponse brute du fournisseur</summary><pre>${escapeAttr(providerRawPretty)}</pre></details>` : ''}
+  `;
+
+  const receivedBody = test.received_at
+    ? `<div class="ml-meta">Reçu à ${fmtTime(test.received_at)} (${fmtMs(test.latency_ms)} après l'envoi) — expéditeur : <span class="mono">${escapeAttr(test.received_from_number || '—')}</span></div>`
+    : `<div class="ml-meta ml-waiting">En attente de réception sur le téléphone...</div>`;
+
+  const dlrBody = test.dlr_status
+    ? `
+      <div class="ml-meta">Reçu à ${fmtTime(test.dlr_at)} (${fmtMs(test.dlr_latency_ms)} après l'envoi) — statut brut : <span class="mono">${escapeAttr(test.dlr_status)}</span></div>
+      ${dlrDetails ? `
+        <div class="ml-dlr-grid">
+          ${dlrDetails.originator ? `<div><span class="ml-label">Sender ID</span><span class="mono">${escapeAttr(dlrDetails.originator)}</span></div>` : ''}
+          ${dlrDetails.phone ? `<div><span class="ml-label">MSISDN</span><span class="mono">${escapeAttr(dlrDetails.phone)}</span></div>` : ''}
+          ${dlrDetails.state ? `<div><span class="ml-label">État SMPP</span><span class="mono">${escapeAttr(dlrDetails.state)}</span></div>` : ''}
+          ${dlrDetails.price != null ? `<div><span class="ml-label">Prix</span><span class="mono">${escapeAttr(dlrDetails.price)}</span></div>` : ''}
+        </div>` : ''}
+    `
+    : `<div class="ml-meta ml-waiting">En attente du DLR fournisseur...</div>`;
+
+  card.innerHTML = `
+    <div class="config-card">
+      <div class="section-head" style="margin-bottom:16px;">
+        <h2><code class="qcode mono">${escapeAttr(test.code)}</code></h2>
+        ${manualStatusPill(test.final_status)}
+      </div>
+
+      <div class="ml-info-grid">
+        <div><span class="ml-label">Route</span>${escapeAttr(test.route_name)}</div>
+        <div><span class="ml-label">Fournisseur</span><span class="mono">${escapeAttr(test.provider_id)}</span></div>
+        <div><span class="ml-label">Destination</span><span class="mono">${escapeAttr(test.destination_number)}</span></div>
+        <div><span class="ml-label">Pays / opérateur</span>${[test.country, test.operator].filter(Boolean).map(escapeAttr).join(' / ') || '—'}</div>
+        <div><span class="ml-label">Appareil</span>${escapeAttr(test.device_name)}</div>
+      </div>
+
+      <div class="ml-message-box mono">${escapeAttr(test.message_body)}</div>
+
+      <div class="ml-timeline">
+        ${manualTimelineStep('1. Envoi au fournisseur', 'done', sentBody)}
+        ${manualTimelineStep('2. Réception réelle par le téléphone', test.received_at ? 'done' : 'pending', receivedBody)}
+        ${manualTimelineStep('3. Accusé de réception (DLR) du fournisseur', test.dlr_status ? 'done' : 'pending', dlrBody)}
+      </div>
+    </div>
+  `;
+}
 
 async function refreshAll() {
   const hours = parseInt(document.getElementById('rangeSelect').value, 10);

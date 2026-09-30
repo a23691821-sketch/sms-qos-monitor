@@ -9,6 +9,9 @@ const TIMEOUT_MINUTES = parseInt(process.env.TIMEOUT_MINUTES || "15", 10);
 // Suivi en mémoire de la dernière exécution par route (évite une table de plus)
 const lastRunByRoute = new Map();
 
+// Retourne l'id du test créé : permet à l'appelant (ex: bouton "Lancer un
+// test" du dashboard) de suivre ce test précis immédiatement, plutôt que
+// d'attendre le prochain cycle planifié ou de deviner quel id vient d'être créé.
 async function runTestForRoute(route) {
   const code = generateTestCode();
   const body = buildTestMessageBody(code);
@@ -18,7 +21,7 @@ async function runTestForRoute(route) {
     INSERT INTO test_messages (route_id, code, sent_at, provider_status, final_status)
     VALUES (?, ?, ?, 'sending', 'pending')
   `);
-  const { lastInsertRowid } = insert.run(route.id, code, sentAt);
+  const { lastInsertRowid: testId } = insert.run(route.id, code, sentAt);
 
   try {
     const result = await sendTestSms(route.provider_id, { to: route.destination_number, body });
@@ -30,19 +33,21 @@ async function runTestForRoute(route) {
       result.ok ? "submitted" : "error",
       JSON.stringify(result.raw ?? result.error ?? {}),
       result.providerMessageId || null,
-      lastInsertRowid
+      testId
     );
 
     if (!result.ok) {
-      db.prepare(`UPDATE test_messages SET final_status = 'failed' WHERE id = ?`).run(lastInsertRowid);
+      db.prepare(`UPDATE test_messages SET final_status = 'failed' WHERE id = ?`).run(testId);
     }
   } catch (err) {
     db.prepare(`
       UPDATE test_messages
       SET provider_status = 'error', provider_response = ?, final_status = 'failed'
       WHERE id = ?
-    `).run(JSON.stringify({ error: String(err) }), lastInsertRowid);
+    `).run(JSON.stringify({ error: String(err) }), testId);
   }
+
+  return testId;
 }
 
 function tickRoutes() {
