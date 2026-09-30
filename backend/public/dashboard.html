@@ -932,7 +932,12 @@ function renderAdminRoutes(routes, devices) {
     <tr data-route-id="${r.id}">
       <td><input type="text" value="${escapeAttr(r.name)}" class="route-name-input" style="width:100%;" /></td>
       <td class="mono">${r.provider_id}</td>
-      <td>${[r.country, r.operator].filter(Boolean).join(' / ') || '—'}</td>
+      <td>
+        <div style="display:flex; gap:4px;">
+          <input type="text" value="${escapeAttr(r.country || '')}" class="route-country-input" placeholder="Pays" style="width:56px;" />
+          <input type="text" value="${escapeAttr(r.operator || '')}" class="route-operator-input" placeholder="Opérateur" style="width:90px;" />
+        </div>
+      </td>
       <td class="mono">${r.destination_number}</td>
       <td>${r.device_name}</td>
       <td>
@@ -960,6 +965,8 @@ function renderAdminRoutes(routes, devices) {
       const row = btn.closest('tr');
       const routeId = row.dataset.routeId;
       const name = row.querySelector('.route-name-input').value.trim();
+      const country = row.querySelector('.route-country-input').value.trim();
+      const operator = row.querySelector('.route-operator-input').value.trim();
       const intervalMinutes = parseInt(row.querySelector('.route-interval-input').value, 10);
       const active = row.querySelector('.route-active-toggle').dataset.active === '1';
       btn.textContent = '...';
@@ -967,7 +974,7 @@ function renderAdminRoutes(routes, devices) {
       try {
         await adminFetch(`/api/routes/${routeId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ name, intervalMinutes, active }),
+          body: JSON.stringify({ name, country, operator, intervalMinutes, active }),
         });
         btn.textContent = 'Enregistré ✓';
         setTimeout(() => { btn.textContent = 'Enregistrer'; btn.disabled = false; }, 1500);
