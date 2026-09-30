@@ -744,7 +744,7 @@ async function loadTimeseries(hours) {
   const latencyData = series.map(s => s.avgLatencyMs == null ? null : Math.round(s.avgLatencyMs / 100) / 10);
 
   renderLineChart('deliveryChart', labels, deliveryData, { color: '#3FB88F', suffix: '%', min: 0, max: 100 });
-  renderLineChart('latencyChart', labels, latencyData, { color: '#5B7FBF', suffix: 's' });
+  renderLineChart('latencyChart', labels, latencyData, { color: '#5B7FBF', suffix: 's', min: 0 });
 }
 
 async function loadRecent() {
