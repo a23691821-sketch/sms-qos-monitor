@@ -8,20 +8,22 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0F1619;
-    --surface: #16211F;
-    --surface-2: #1C2A28;
-    --line: #263532;
-    --text: #E7EEEC;
-    --text-dim: #8EA39E;
-    --text-faint: #5B6E69;
-    --good: #3FB88F;
-    --good-dim: #244B3F;
-    --warn: #E8A33D;
-    --warn-dim: #4A3C1E;
-    --bad: #E2604F;
-    --bad-dim: #4A2620;
-    --pending: #5B7FBF;
+    --bg: #F3F6F5;
+    --surface: #FFFFFF;
+    --surface-2: #EDF3F0;
+    --line: #DCE6E1;
+    --text: #172420;
+    --text-dim: #57685F;
+    --text-faint: #8A9A92;
+    --good: #1E8F62;
+    --good-dim: #E1F4EA;
+    --warn: #A3690C;
+    --warn-dim: #FBF0D8;
+    --bad: #C43E28;
+    --bad-dim: #FBE3DE;
+    --pending: #3A5FA6;
+    --pending-dim: #E7EDF8;
+    --shadow: 0 1px 3px rgba(23,36,32,0.06), 0 1px 2px rgba(23,36,32,0.04);
   }
   * { box-sizing: border-box; }
   body {
@@ -35,14 +37,14 @@
 
   .pulse-dot {
     width: 8px; height: 8px; border-radius: 50%; background: var(--good);
-    box-shadow: 0 0 0 0 rgba(63,184,143,0.5);
+    box-shadow: 0 0 0 0 rgba(30,143,98,0.5);
     animation: pulse 2s infinite;
     display: inline-block; margin-right: 8px; flex-shrink: 0;
   }
   @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(63,184,143,0.5); }
-    70% { box-shadow: 0 0 0 8px rgba(63,184,143,0); }
-    100% { box-shadow: 0 0 0 0 rgba(63,184,143,0); }
+    0% { box-shadow: 0 0 0 0 rgba(30,143,98,0.5); }
+    70% { box-shadow: 0 0 0 8px rgba(30,143,98,0); }
+    100% { box-shadow: 0 0 0 0 rgba(30,143,98,0); }
   }
 
   select {
@@ -161,6 +163,7 @@
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 10px;
+    box-shadow: var(--shadow);
     padding: 20px;
     height: 260px;
   }
@@ -170,6 +173,7 @@
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 10px;
+    box-shadow: var(--shadow);
     overflow: hidden;
   }
   thead th {
@@ -205,7 +209,7 @@
   .pill.delivered { background: var(--good-dim); color: var(--good); }
   .pill.timeout { background: var(--warn-dim); color: var(--warn); }
   .pill.failed { background: var(--bad-dim); color: var(--bad); }
-  .pill.pending { background: #1E2A3F; color: var(--pending); }
+  .pill.pending { background: var(--pending-dim); color: var(--pending); }
 
   .mismatch-tag { color: var(--warn); font-size: 11px; margin-left: 8px; }
 
@@ -248,8 +252,8 @@
   }
   .alert-row + .alert-row { border-top: 1px solid rgba(255,255,255,0.08); }
   .alert-sev { font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; flex-shrink: 0; }
-  .alert-sev.critical { background: var(--bad); color: #1a0a08; }
-  .alert-sev.warning { background: var(--warn); color: #1a1408; }
+  .alert-sev.critical { background: var(--bad); color: #FFFFFF; }
+  .alert-sev.warning { background: var(--warn); color: #FFFFFF; }
   .alert-msg { flex: 1; color: var(--text); }
   .alert-time { color: var(--text-faint); font-size: 11px; font-family: 'IBM Plex Mono', monospace; flex-shrink: 0; }
 
@@ -262,6 +266,7 @@
 
   .config-card {
     background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: var(--shadow);
     padding: 18px 20px; margin-bottom: 18px;
   }
   .config-lock {
