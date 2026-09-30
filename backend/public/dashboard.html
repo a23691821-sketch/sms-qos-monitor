@@ -114,6 +114,33 @@
   .logout-btn svg { flex-shrink: 0; }
   .logout-btn:hover { background: var(--bad-dim); border-color: var(--bad); color: var(--bad); }
 
+  /* Bouton d'urgence "pause de l'envoi de SMS" — volontairement bien visible
+     dans la sidebar (pas caché dans Configuration), accessible depuis
+     n'importe quelle page du dashboard. */
+  .scheduler-control { padding: 14px 18px 4px; }
+  .scheduler-status {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    padding: 4px 0 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .scheduler-status::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0;
+  }
+  .scheduler-status.active { color: var(--good); }
+  .scheduler-status.active::before { background: var(--good); }
+  .scheduler-status.paused { color: var(--bad); }
+  .scheduler-status.paused::before { background: var(--bad); }
+  .scheduler-toggle-btn {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    width: 100%;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; font-family: inherit; font-size: 12.5px; font-weight: 600;
+    color: var(--text-dim); cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .scheduler-toggle-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+  .scheduler-toggle-btn:not(:disabled):hover { background: var(--bad-dim); border-color: var(--bad); color: var(--bad); }
+  .scheduler-toggle-btn.is-paused { background: var(--good-dim); border-color: var(--good); color: var(--good); }
+  .scheduler-toggle-btn.is-paused:not(:disabled):hover { background: var(--good-dim); border-color: var(--good); color: var(--good); }
+
   .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
   .content-topbar {
@@ -440,6 +467,14 @@
         <span class="nav-icon" id="navConfigIcon">🔒</span>Configuration
       </button>
     </nav>
+    <div class="scheduler-control" id="schedulerControl">
+      <div class="scheduler-status" id="schedulerStatusText">—</div>
+      <button class="scheduler-toggle-btn" id="schedulerToggleBtn" type="button" disabled>
+        <span id="schedulerToggleIcon">⏸</span>
+        <span id="schedulerToggleLabel">Mettre en pause l'envoi</span>
+      </button>
+    </div>
+
     <div class="sidebar-footer">
       <span id="lastUpdated">—</span>
       <button class="logout-btn" id="logoutLink" type="button">
@@ -1237,12 +1272,74 @@ document.getElementById('adminKeyBtn').addEventListener('click', async () => {
   setAdminKey(key);
   document.getElementById('adminKeyInput').value = '';
   await tryLoadConfigSection();
+  await refreshSchedulerStatus();
 });
 
 document.getElementById('adminLogoutBtn').addEventListener('click', () => {
   clearAdminKey();
   showConfigLock();
+  refreshSchedulerStatus();
 });
+
+// ---------- Bouton d'urgence : pause de l'envoi de SMS ----------
+// Coupe-circuit global (cycle planifié + envois manuels), pensé pour être
+// utilisé sans réfléchir en cas de besoin (ex: avant de manipuler les SIM
+// physiques du téléphone de test) — voir POST /api/scheduler/pause côté API.
+
+let schedulerPaused = false;
+
+function updateSchedulerUi(known) {
+  const btn = document.getElementById('schedulerToggleBtn');
+  const icon = document.getElementById('schedulerToggleIcon');
+  const label = document.getElementById('schedulerToggleLabel');
+  const status = document.getElementById('schedulerStatusText');
+
+  if (!known) {
+    btn.disabled = true;
+    btn.classList.remove('is-paused');
+    icon.textContent = '⏸';
+    label.textContent = "Mettre en pause l'envoi";
+    status.textContent = 'Connecte-toi (Configuration) pour piloter l\'envoi';
+    status.className = 'scheduler-status';
+    return;
+  }
+
+  btn.disabled = false;
+  btn.classList.toggle('is-paused', schedulerPaused);
+  icon.textContent = schedulerPaused ? '▶' : '⏸';
+  label.textContent = schedulerPaused ? "Reprendre l'envoi" : "Mettre en pause l'envoi";
+  status.textContent = schedulerPaused ? 'Envoi de SMS en pause' : 'Envoi de SMS actif';
+  status.className = 'scheduler-status ' + (schedulerPaused ? 'paused' : 'active');
+}
+
+async function refreshSchedulerStatus() {
+  if (!getAdminKey()) { updateSchedulerUi(false); return; }
+  try {
+    const res = await adminFetch('/api/scheduler/status');
+    const data = await res.json();
+    schedulerPaused = !!data.paused;
+    updateSchedulerUi(true);
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') updateSchedulerUi(false);
+  }
+}
+
+document.getElementById('schedulerToggleBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('schedulerToggleBtn');
+  btn.disabled = true;
+  try {
+    const endpoint = schedulerPaused ? '/api/scheduler/resume' : '/api/scheduler/pause';
+    const res = await adminFetch(endpoint, { method: 'POST' });
+    const data = await res.json();
+    schedulerPaused = !!data.paused;
+    updateSchedulerUi(true);
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') { btn.disabled = false; }
+  }
+});
+
+refreshSchedulerStatus();
+setInterval(refreshSchedulerStatus, 30000);
 
 document.getElementById('createRouteBtn').addEventListener('click', async () => {
   const msg = document.getElementById('createRouteMsg');
@@ -1493,9 +1590,14 @@ document.getElementById('manualRunBtn').addEventListener('click', async () => {
       body: JSON.stringify({ content, senderId }),
     });
     const data = await res.json();
-    msg.textContent = 'Test envoyé, suivi en direct ci-dessous...';
-    msg.className = 'config-msg ok';
-    pollManualTest(data.testId);
+    if (!res.ok) {
+      msg.textContent = data.error || 'Erreur lors du lancement du test.';
+      msg.className = 'config-msg err';
+    } else {
+      msg.textContent = 'Test envoyé, suivi en direct ci-dessous...';
+      msg.className = 'config-msg ok';
+      pollManualTest(data.testId);
+    }
   } catch (e) {
     if (e.message !== 'admin_unauthorized') { msg.textContent = 'Erreur lors du lancement du test.'; msg.className = 'config-msg err'; }
   } finally {

@@ -9,6 +9,20 @@ const TIMEOUT_MINUTES = parseInt(process.env.TIMEOUT_MINUTES || "15", 10);
 // Suivi en mémoire de la dernière exécution par route (évite une table de plus)
 const lastRunByRoute = new Map();
 
+// Bouton d'urgence "mettre en pause l'envoi de SMS" (sidebar du dashboard) :
+// persisté en base (table settings) pour survivre à un redémarrage du
+// service, plutôt qu'un simple booléen en mémoire.
+function isPaused() {
+  const row = db.prepare(`SELECT value FROM settings WHERE key = 'paused'`).get();
+  return !!row && row.value === "1";
+}
+function setPaused(paused) {
+  db.prepare(`
+    INSERT INTO settings (key, value) VALUES ('paused', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(paused ? "1" : "0");
+}
+
 // Retourne l'id du test créé : permet à l'appelant (ex: bouton "Lancer un
 // test" du dashboard) de suivre ce test précis immédiatement, plutôt que
 // d'attendre le prochain cycle planifié ou de deviner quel id vient d'être créé.
@@ -63,6 +77,8 @@ async function runTestForRoute(route, overrides = {}) {
 }
 
 function tickRoutes() {
+  if (isPaused()) return;
+
   const routes = db.prepare(`SELECT * FROM routes WHERE active = 1`).all();
   const now = Date.now();
 
@@ -101,4 +117,4 @@ function startScheduler() {
   console.log(`[scheduler] démarré (timeout = ${TIMEOUT_MINUTES} min)`);
 }
 
-module.exports = { startScheduler, runTestForRoute };
+module.exports = { startScheduler, runTestForRoute, isPaused, setPaused };

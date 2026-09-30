@@ -78,6 +78,14 @@ CREATE TABLE IF NOT EXISTS dlr_events (
   raw_body TEXT NOT NULL,
   received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Réglages globaux simples (clé/valeur), ex: mise en pause de l'envoi de SMS
+-- (bouton d'urgence dans la sidebar). Persisté en base plutôt qu'en mémoire
+-- pour que la pause survive à un redémarrage du service.
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 `);
 
 // Migration : la page "Test manuel" permet un contenu personnalisé, donc le

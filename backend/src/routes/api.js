@@ -1,7 +1,7 @@
 const express = require("express");
 const crypto = require("crypto");
 const db = require("./../db");
-const { runTestForRoute } = require("./../scheduler");
+const { runTestForRoute, isPaused, setPaused } = require("./../scheduler");
 const { loadProviderConfigs } = require("./../providers");
 const { buildTestMessageBody } = require("./../idgen");
 
@@ -146,11 +146,33 @@ router.patch("/routes/:id", requireAdmin, (req, res) => {
 
 // Déclenche un test immédiat sur une route (utile pour valider une config avant d'attendre le prochain cycle)
 router.post("/routes/:id/run-now", requireAdmin, async (req, res) => {
+  // Le bouton d'urgence "pause" (sidebar) coupe aussi les envois manuels,
+  // pas seulement le cycle planifié : c'est un arrêt d'urgence, pas juste
+  // une pause de la routine automatique.
+  if (isPaused()) {
+    return res.status(409).json({ error: "Envoi de SMS en pause — reprends l'envoi depuis la sidebar pour lancer un test." });
+  }
   const route = db.prepare(`SELECT * FROM routes WHERE id = ?`).get(req.params.id);
   if (!route) return res.status(404).json({ error: "route introuvable" });
   const { content, senderId } = req.body || {};
   const testId = await runTestForRoute(route, { content, senderId, triggerType: "manual" });
   res.json({ ok: true, testId });
+});
+
+// Bouton d'urgence "pause de l'envoi de SMS" (sidebar du dashboard) : coupe à
+// la fois le cycle planifié (tickRoutes) et les envois manuels ("Test
+// manuel"), sans toucher aux données déjà enregistrées ni aux routes/appareils
+// configurés — juste un coupe-circuit temporaire, réversible en un clic.
+router.get("/scheduler/status", requireAdmin, (req, res) => {
+  res.json({ paused: isPaused() });
+});
+router.post("/scheduler/pause", requireAdmin, (req, res) => {
+  setPaused(true);
+  res.json({ paused: true });
+});
+router.post("/scheduler/resume", requireAdmin, (req, res) => {
+  setPaused(false);
+  res.json({ paused: false });
 });
 
 // Détail complet d'un test (utilisé par la page "Test manuel" pour suivre en
