@@ -235,6 +235,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* Une cellule "Contenu" qui contient un <details> peut dépasser une ligne
+     une fois dépliée : on l'autorise à repasser à la ligne uniquement dans
+     ce cas (le reste de .compact-table reste en nowrap). */
+  .compact-table td.diff-cell { white-space: normal; }
+
+  /* Diff mot à mot entre le contenu envoyé et reçu (voir renderContentDiff) */
+  .diff-details summary { cursor: pointer; color: var(--warn); font-weight: 600; font-size: 12px; }
+  .diff-details summary::-webkit-details-marker { color: var(--warn); }
+  .diff-line { font-size: 12px; margin-top: 4px; line-height: 1.5; }
+  .diff-label { color: var(--text-faint); display: inline-block; min-width: 50px; }
+  .diff-hl { background: var(--warn-dim); color: var(--warn); border-radius: 3px; padding: 0 2px; }
 
   .route-name { font-weight: 500; }
   .route-meta { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
@@ -1342,16 +1353,71 @@ function senderRecuLabel(senderSent, senderReceived) {
   return `<span style="color:${color};"${title}>${escapeAttr(senderReceived)}</span>`;
 }
 
+// Diff mot à mot (LCS) entre deux textes, pour affichage visuel plutôt qu'un
+// simple "différent" textuel. Retourne les tokens de chaque côté avec un
+// indicateur same/different par token.
+function diffWords(a, b) {
+  const aw = (a || '').split(/(\s+)/);
+  const bw = (b || '').split(/(\s+)/);
+  const n = aw.length, m = bw.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = aw[i] === bw[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  let i = 0, j = 0;
+  const aParts = [], bParts = [];
+  while (i < n && j < m) {
+    if (aw[i] === bw[j]) { aParts.push([aw[i], true]); bParts.push([bw[j], true]); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { aParts.push([aw[i], false]); i++; }
+    else { bParts.push([bw[j], false]); j++; }
+  }
+  while (i < n) { aParts.push([aw[i], false]); i++; }
+  while (j < m) { bParts.push([bw[j], false]); j++; }
+  return { aParts, bParts };
+}
+
+// Neutralise le code de suivi (ex: QOS-XK4D2A) avant comparaison : sa
+// présence a déjà servi à corréler le test (c'est lui qui a permis de
+// retrouver ce test précis dans le SMS reçu), donc un écart dessus n'a rien
+// d'anormal et ne doit ni être compté comme une vraie différence de
+// contenu, ni être surligné dans le diff.
+function neutralizeCode(s, code) {
+  return code ? s.split(code).join('\u0000') : s;
+}
+function contentsEffectivelyMatch(sent, received, code) {
+  if (sent === received) return true;
+  return neutralizeCode(sent, code) === neutralizeCode(received, code);
+}
+
+// Affiche le diff complet (ligne "Envoyé" / ligne "Reçu", mots différents
+// surlignés), le code de suivi neutralisé pour ne pas apparaître en évidence.
+function renderContentDiff(sent, received, code) {
+  const restore = (t) => escapeAttr(t.split('\u0000').join(code || ''));
+  const { aParts, bParts } = diffWords(neutralizeCode(sent, code), neutralizeCode(received, code));
+  const render = (parts) => parts.map(([t, same]) => {
+    const html = restore(t);
+    return same ? html : `<span class="diff-hl">${html}</span>`;
+  }).join('');
+  return `
+    <div class="diff-line"><span class="diff-label">Envoyé</span><span class="mono">${render(aParts)}</span></div>
+    <div class="diff-line"><span class="diff-label">Reçu</span><span class="mono">${render(bParts)}</span></div>
+  `;
+}
+
 // Compare le contenu envoyé (message_body) au contenu réellement reçu sur le
-// téléphone (received_body, rapporté par l'app Android) : un badge compact
-// plutôt qu'une colonne de plus, le texte complet reste consultable via le
-// tooltip (title) en cas d'écart.
-function contentMatchLabel(sent, received) {
+// téléphone (received_body, rapporté par l'app Android). Un écart qui ne
+// touche que le code de suivi n'est pas considéré comme un vrai problème
+// (voir contentsEffectivelyMatch). Pour un vrai écart, affiche directement
+// le diff (dans un <details> pour rester compact tant qu'on ne l'ouvre pas)
+// plutôt qu'un simple avertissement dans un tooltip.
+function contentMatchLabel(sent, received, code) {
   if (received == null) return '<span style="color:var(--text-faint);" title="Pas encore reçu sur le téléphone">—</span>';
-  if (sent === received) {
+  if (contentsEffectivelyMatch(sent, received, code)) {
     return '<span style="color:var(--good);" title="Contenu identique à celui envoyé">✓ identique</span>';
   }
-  return `<span style="color:var(--warn); font-weight:600;" title="Envoyé : ${escapeAttr(sent)}\nReçu : ${escapeAttr(received)}">⚠ différent</span>`;
+  return `<details class="diff-details"><summary>⚠ différent</summary>${renderContentDiff(sent, received, code)}</details>`;
 }
 
 // Statut + horodatage du DLR réunis dans une seule cellule, sur une seule
@@ -1386,7 +1452,7 @@ async function loadManualHistory() {
         <td class="mono">${escapeAttr(t.code)}</td>
         <td class="truncate-sm" title="${escapeAttr(t.destination_number)}">${escapeAttr(t.destination_number)}</td>
         <td class="truncate" title="${escapeAttr(t.message_body)}">${escapeAttr(t.message_body)}</td>
-        <td class="truncate-sm">${contentMatchLabel(t.message_body, t.received_body)}</td>
+        <td class="diff-cell">${contentMatchLabel(t.message_body, t.received_body, t.code)}</td>
         <td class="truncate-sm">${escapeAttr(t.sender_id || '—')}</td>
         <td class="truncate-sm">${senderRecuLabel(t.sender_id, t.received_from_number)}</td>
         <td class="truncate-sm" title="${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}">${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}</td>
@@ -1513,7 +1579,7 @@ function renderManualResult(test) {
   const receivedBody = test.received_at
     ? `
       <div class="ml-meta">Reçu à ${fmtTime(test.received_at)} (${fmtMs(test.latency_ms)} après l'envoi) — expéditeur : <span class="mono">${escapeAttr(test.received_from_number || '—')}</span></div>
-      <div class="ml-meta">Contenu reçu : ${contentMatchLabel(test.message_body, test.received_body)}</div>
+      <div class="ml-meta">Contenu reçu : ${contentMatchLabel(test.message_body, test.received_body, test.code)}</div>
       ${test.received_body != null ? `<div class="ml-message-box mono">${escapeAttr(test.received_body)}</div>` : ''}
     `
     : `<div class="ml-meta ml-waiting">En attente de réception sur le téléphone...</div>`;
