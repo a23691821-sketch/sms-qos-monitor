@@ -6,3 +6,6 @@ data/
 *.sqlite-shm
 .env
 backend/config/providers.json
+
+# APK servi en téléchargement direct depuis le serveur (pas versionné, déployé à part)
+backend/downloads/

@@ -23,6 +23,14 @@ app.post("/api/logout", handleLogout);
 app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 app.get("/login.html", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "login.html")));
 
+// Téléchargement de l'APK Android depuis le téléphone de test (Google Drive
+// bloque souvent le téléchargement direct d'un .apk sur mobile). Chemin non
+// devinable plutôt que protégé par login, pour rester ouvrable directement
+// depuis le navigateur du téléphone sans avoir à se connecter au dashboard.
+app.get("/dl-8f3k1q/sms-qos-monitor.apk", (req, res) => {
+  res.download(path.join(__dirname, "..", "downloads", "sms-qos-monitor.apk"), "sms-qos-monitor.apk");
+});
+
 // Tout ce qui est déclaré après cette ligne exige un cookie de session valide
 app.use(requireSession);
 
