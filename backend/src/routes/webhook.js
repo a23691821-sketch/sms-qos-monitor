@@ -39,9 +39,9 @@ router.post("/sms-received", (req, res) => {
 
   db.prepare(`
     UPDATE test_messages
-    SET received_at = ?, received_from_number = ?, latency_ms = ?, final_status = 'delivered'
+    SET received_at = ?, received_from_number = ?, received_body = ?, latency_ms = ?, final_status = 'delivered'
     WHERE id = ?
-  `).run(receivedTs, from || null, latencyMs, testMsg.id);
+  `).run(receivedTs, from || null, body, latencyMs, testMsg.id);
 
   res.json({ matched: true, code, latencyMs });
 });

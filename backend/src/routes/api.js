@@ -199,7 +199,7 @@ router.get("/tests", requireAdmin, (req, res) => {
         t.id, t.code, t.sent_at, t.body, t.sender_id,
         t.provider_status, t.final_status,
         t.dlr_status, t.dlr_at,
-        t.received_at, t.received_from_number,
+        t.received_at, t.received_from_number, t.received_body,
         t.latency_ms, t.dlr_latency_ms,
         r.name as route_name, r.provider_id, r.operator,
         r.destination_number, d.name as device_name
@@ -234,7 +234,7 @@ router.get("/tests/export/csv", (req, res) => {
     .prepare(`
       SELECT
         t.id, t.code, t.sent_at, t.body, t.sender_id, t.received_from_number,
-        t.provider_status, t.final_status, t.dlr_status, t.dlr_at,
+        t.received_body, t.provider_status, t.final_status, t.dlr_status, t.dlr_at,
         t.received_at, t.latency_ms, t.dlr_latency_ms,
         r.name as route_name, r.provider_id, r.operator, r.destination_number,
         d.name as device_name
@@ -248,7 +248,7 @@ router.get("/tests/export/csv", (req, res) => {
 
   const headers = [
     "id", "code", "sent_at", "destination_number", "message_body",
-    "sender_id", "received_from_number", "route_name", "operator",
+    "received_body", "sender_id", "received_from_number", "route_name", "operator",
     "device_name", "provider_id", "provider_status",
     "dlr_status", "dlr_at", "received_at",
     "latency_ms", "dlr_latency_ms", "final_status",

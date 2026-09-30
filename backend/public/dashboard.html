@@ -599,6 +599,7 @@
                       <th>Code</th>
                       <th>Destinataire</th>
                       <th>Message</th>
+                      <th>Contenu</th>
                       <th>Sender envoyé</th>
                       <th>Sender reçu</th>
                       <th>Route / Opérateur</th>
@@ -610,7 +611,7 @@
                     </tr>
                   </thead>
                   <tbody id="manualHistoryBody">
-                    <tr><td colspan="12" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>
+                    <tr><td colspan="13" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1341,6 +1342,18 @@ function senderRecuLabel(senderSent, senderReceived) {
   return `<span style="color:${color};"${title}>${escapeAttr(senderReceived)}</span>`;
 }
 
+// Compare le contenu envoyé (message_body) au contenu réellement reçu sur le
+// téléphone (received_body, rapporté par l'app Android) : un badge compact
+// plutôt qu'une colonne de plus, le texte complet reste consultable via le
+// tooltip (title) en cas d'écart.
+function contentMatchLabel(sent, received) {
+  if (received == null) return '<span style="color:var(--text-faint);" title="Pas encore reçu sur le téléphone">—</span>';
+  if (sent === received) {
+    return '<span style="color:var(--good);" title="Contenu identique à celui envoyé">✓ identique</span>';
+  }
+  return `<span style="color:var(--warn); font-weight:600;" title="Envoyé : ${escapeAttr(sent)}\nReçu : ${escapeAttr(received)}">⚠ différent</span>`;
+}
+
 // Statut + horodatage du DLR réunis dans une seule cellule, sur une seule
 // ligne ("Délivré · 12:03:04"), pour ne pas ajouter de colonne supplémentaire.
 function manualHistoryDlrLabel(status, dlrAt) {
@@ -1359,12 +1372,12 @@ function manualHistoryDlrLabel(status, dlrAt) {
 
 async function loadManualHistory() {
   const body = document.getElementById('manualHistoryBody');
-  body.innerHTML = '<tr><td colspan="12" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>';
+  body.innerHTML = '<tr><td colspan="13" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>';
   try {
     const res = await adminFetch('/api/tests?limit=100');
     const tests = await res.json();
     if (!tests.length) {
-      body.innerHTML = '<tr><td colspan="12" style="text-align:center; color:var(--text-faint);">Aucun test manuel pour le moment.</td></tr>';
+      body.innerHTML = '<tr><td colspan="13" style="text-align:center; color:var(--text-faint);">Aucun test manuel pour le moment.</td></tr>';
       return;
     }
     body.innerHTML = tests.map(t => `
@@ -1373,6 +1386,7 @@ async function loadManualHistory() {
         <td class="mono">${escapeAttr(t.code)}</td>
         <td class="truncate-sm" title="${escapeAttr(t.destination_number)}">${escapeAttr(t.destination_number)}</td>
         <td class="truncate" title="${escapeAttr(t.message_body)}">${escapeAttr(t.message_body)}</td>
+        <td class="truncate-sm">${contentMatchLabel(t.message_body, t.received_body)}</td>
         <td class="truncate-sm">${escapeAttr(t.sender_id || '—')}</td>
         <td class="truncate-sm">${senderRecuLabel(t.sender_id, t.received_from_number)}</td>
         <td class="truncate-sm" title="${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}">${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}</td>
@@ -1385,7 +1399,7 @@ async function loadManualHistory() {
     `).join('');
   } catch (e) {
     if (e.message !== 'admin_unauthorized') {
-      body.innerHTML = '<tr><td colspan="12" style="text-align:center; color:var(--bad);">Erreur de chargement.</td></tr>';
+      body.innerHTML = '<tr><td colspan="13" style="text-align:center; color:var(--bad);">Erreur de chargement.</td></tr>';
     }
   }
 }
@@ -1497,7 +1511,11 @@ function renderManualResult(test) {
   `;
 
   const receivedBody = test.received_at
-    ? `<div class="ml-meta">Reçu à ${fmtTime(test.received_at)} (${fmtMs(test.latency_ms)} après l'envoi) — expéditeur : <span class="mono">${escapeAttr(test.received_from_number || '—')}</span></div>`
+    ? `
+      <div class="ml-meta">Reçu à ${fmtTime(test.received_at)} (${fmtMs(test.latency_ms)} après l'envoi) — expéditeur : <span class="mono">${escapeAttr(test.received_from_number || '—')}</span></div>
+      <div class="ml-meta">Contenu reçu : ${contentMatchLabel(test.message_body, test.received_body)}</div>
+      ${test.received_body != null ? `<div class="ml-message-box mono">${escapeAttr(test.received_body)}</div>` : ''}
+    `
     : `<div class="ml-meta ml-waiting">En attente de réception sur le téléphone...</div>`;
 
   const dlrBody = test.dlr_status

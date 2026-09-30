@@ -99,5 +99,11 @@ if (!testMessageColumns.includes("trigger_type")) {
 if (!testMessageColumns.includes("sender_id")) {
   db.exec("ALTER TABLE test_messages ADD COLUMN sender_id TEXT");
 }
+// Contenu du SMS tel que réellement reçu par le téléphone (rapporté par
+// l'app Android), pour pouvoir le comparer au contenu envoyé (colonne
+// "body") et détecter une corruption/troncature en transit.
+if (!testMessageColumns.includes("received_body")) {
+  db.exec("ALTER TABLE test_messages ADD COLUMN received_body TEXT");
+}
 
 module.exports = db;
