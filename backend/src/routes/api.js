@@ -212,8 +212,20 @@ router.get("/tests/:id", requireAdmin, (req, res) => {
 // portent que sur les tests planifiés) — voir trigger_type dans db.js.
 // MCC/MNC ne sont pas exposés ici (demande explicite: pas nécessaires pour
 // cette vue historique).
+// since/until (ISO 8601, optionnels) : filtres rapides "Dernière heure /
+// Aujourd'hui / Hier" côté dashboard — calculés côté client (qui connaît le
+// fuseau horaire réel de la personne) plutôt que par un nombre d'heures
+// glissant, pour que "Aujourd'hui"/"Hier" tombent sur de vraies frontières de
+// journée locale et non sur un multiple de 24h depuis maintenant.
 router.get("/tests", requireAdmin, (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+  const { since, until } = req.query;
+
+  const conditions = ["t.trigger_type = 'manual'"];
+  const params = [];
+  if (since) { conditions.push("t.sent_at >= ?"); params.push(since); }
+  if (until) { conditions.push("t.sent_at <= ?"); params.push(until); }
+  params.push(limit);
 
   const tests = db
     .prepare(`
@@ -228,11 +240,11 @@ router.get("/tests", requireAdmin, (req, res) => {
       FROM test_messages t
       JOIN routes r ON r.id = t.route_id
       JOIN devices d ON d.id = r.device_id
-      WHERE t.trigger_type = 'manual'
+      WHERE ${conditions.join(" AND ")}
       ORDER BY t.id DESC
       LIMIT ?
     `)
-    .all(limit);
+    .all(...params);
 
   res.json(
     tests.map((t) => ({
@@ -495,26 +507,30 @@ router.get("/stats/timeseries", (req, res) => {
 // triggerType (optionnel) : "scheduled" ou "manual", pour isoler les tests
 // automatiques du cycle planifié des tests manuels lancés depuis "Test manuel"
 // dans la vue "Tests récents" (par défaut, sans filtre, on garde les deux).
+// since/until (ISO 8601, optionnels) : mêmes filtres rapides "Dernière heure /
+// Aujourd'hui / Hier" que sur /tests, voir le commentaire là-bas.
 router.get("/stats/recent", (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || "50", 10), 200);
-  const triggerType = ["scheduled", "manual"].includes(req.query.triggerType) ? req.query.triggerType : null;
+  const { since, until } = req.query;
 
-  const rows = triggerType
-    ? db
-        .prepare(`
-          SELECT t.*, r.name as route_name, r.provider_id, r.country, r.operator
-          FROM test_messages t JOIN routes r ON r.id = t.route_id
-          WHERE t.trigger_type = ?
-          ORDER BY t.sent_at DESC LIMIT ?
-        `)
-        .all(triggerType, limit)
-    : db
-        .prepare(`
-          SELECT t.*, r.name as route_name, r.provider_id, r.country, r.operator
-          FROM test_messages t JOIN routes r ON r.id = t.route_id
-          ORDER BY t.sent_at DESC LIMIT ?
-        `)
-        .all(limit);
+  const conditions = [];
+  const params = [];
+  if (["scheduled", "manual"].includes(req.query.triggerType)) {
+    conditions.push("t.trigger_type = ?");
+    params.push(req.query.triggerType);
+  }
+  if (since) { conditions.push("t.sent_at >= ?"); params.push(since); }
+  if (until) { conditions.push("t.sent_at <= ?"); params.push(until); }
+  params.push(limit);
+
+  const rows = db
+    .prepare(`
+      SELECT t.*, r.name as route_name, r.provider_id, r.country, r.operator
+      FROM test_messages t JOIN routes r ON r.id = t.route_id
+      ${conditions.length ? "WHERE " + conditions.join(" AND ") : ""}
+      ORDER BY t.sent_at DESC LIMIT ?
+    `)
+    .all(...params);
   res.json(rows);
 });
 

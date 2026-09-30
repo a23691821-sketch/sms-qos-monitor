@@ -600,10 +600,17 @@
       <div class="page" data-page="recent" hidden>
         <section>
           <div class="section-head"><h2>Tests récents</h2></div>
-          <div class="dim-tabs" id="recentFilterTabs">
-            <button class="dim-tab active" data-filter="all">Tous</button>
-            <button class="dim-tab" data-filter="scheduled">Automatiques</button>
-            <button class="dim-tab" data-filter="manual">Manuels</button>
+          <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center; margin-bottom:4px;">
+            <div class="dim-tabs" id="recentFilterTabs">
+              <button class="dim-tab active" data-filter="all">Tous</button>
+              <button class="dim-tab" data-filter="scheduled">Automatiques</button>
+              <button class="dim-tab" data-filter="manual">Manuels</button>
+            </div>
+            <div class="dim-tabs" id="recentRangeTabs">
+              <button class="dim-tab" data-range="hour">Dernière heure</button>
+              <button class="dim-tab active" data-range="today">Aujourd'hui</button>
+              <button class="dim-tab" data-range="yesterday">Hier</button>
+            </div>
           </div>
           <div class="table-card scroll-card">
             <table class="compact-table">
@@ -670,8 +677,13 @@
 
           <div id="manualSubpageHistory" style="display:none;">
             <div class="table-card">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
                 <h3 style="margin:0; font-size:14px;">Historique des tests manuels</h3>
+                <div class="dim-tabs" id="historyRangeTabs">
+                  <button class="dim-tab" data-range="hour">Dernière heure</button>
+                  <button class="dim-tab active" data-range="today">Aujourd'hui</button>
+                  <button class="dim-tab" data-range="yesterday">Hier</button>
+                </div>
                 <div style="display:flex; gap:8px;">
                   <a class="btn btn-sm" href="/api/tests/export/csv?hours=24" download>Télécharger CSV (24h)</a>
                   <button class="btn btn-sm" id="manualHistoryRefreshBtn">Rafraîchir</button>
@@ -1092,19 +1104,53 @@ async function loadAlerts() {
   }
 
   const hasCritical = alerts.some(a => a.severity === 'critical');
+  // Résoudre une alerte nécessite la clé admin (POST /alerts/:id/resolve) —
+  // sans clé configurée, le bouton n'a aucune action possible côté serveur,
+  // donc autant ne pas l'afficher plutôt que de renvoyer un 401 confus.
+  const canResolve = !!getAdminKey();
   box.innerHTML = `
     <div class="alerts-box ${hasCritical ? '' : 'warning-only'}">
-      <div class="alerts-title">⚠ ${alerts.length} alerte${alerts.length > 1 ? 's' : ''} active${alerts.length > 1 ? 's' : ''}</div>
+      <div class="alerts-title">
+        ⚠ ${alerts.length} alerte${alerts.length > 1 ? 's' : ''} active${alerts.length > 1 ? 's' : ''}
+        ${canResolve && alerts.length > 1 ? `<button class="btn btn-sm alert-resolve-all-btn" style="margin-left:10px;">Tout résoudre</button>` : ''}
+      </div>
       ${alerts.map(a => `
-        <div class="alert-row">
+        <div class="alert-row" data-alert-id="${a.id}">
           <span class="alert-sev ${a.severity}">${a.severity}</span>
           <span class="alert-msg">${a.message}</span>
           <span class="alert-time mono">${fmtTime(a.created_at)}</span>
+          ${canResolve ? `<button class="btn btn-sm alert-resolve-btn" title="Marquer comme résolue">✓ Résoudre</button>` : ''}
         </div>
       `).join('')}
     </div>
   `;
   document.getElementById('navDotOverview').classList.toggle('show', alerts.length > 0);
+
+  box.querySelectorAll('.alert-resolve-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('.alert-row');
+      const alertId = row.dataset.alertId;
+      btn.disabled = true;
+      try {
+        await adminFetch(`/api/alerts/${alertId}/resolve`, { method: 'POST' });
+        await loadAlerts();
+      } catch (e) {
+        btn.disabled = false;
+      }
+    });
+  });
+  const resolveAllBtn = box.querySelector('.alert-resolve-all-btn');
+  if (resolveAllBtn) {
+    resolveAllBtn.addEventListener('click', async () => {
+      resolveAllBtn.disabled = true;
+      try {
+        await Promise.all(alerts.map(a => adminFetch(`/api/alerts/${a.id}/resolve`, { method: 'POST' })));
+        await loadAlerts();
+      } catch (e) {
+        resolveAllBtn.disabled = false;
+      }
+    });
+  }
 }
 
 async function loadByDimension(hours) {
@@ -1178,6 +1224,24 @@ document.querySelectorAll('#recentFilterTabs .dim-tab').forEach(btn => {
     btn.classList.add('active');
     currentRecentFilter = btn.dataset.filter;
     loadRecent();
+  });
+});
+
+document.querySelectorAll('#recentRangeTabs .dim-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#recentRangeTabs .dim-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentRecentRange = btn.dataset.range;
+    loadRecent();
+  });
+});
+
+document.querySelectorAll('#historyRangeTabs .dim-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#historyRangeTabs .dim-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentHistoryRange = btn.dataset.range;
+    loadManualHistory();
   });
 });
 
@@ -1281,6 +1345,7 @@ async function loadOperatorSummary(hours) {
 // cycle planifié des tests lancés à la main depuis "Test manuel", qui
 // partagent la même table et donc la même vue "Tests récents" par défaut.
 let currentRecentFilter = 'all';
+let currentRecentRange = 'today';
 
 function recentTypeLabel(triggerType) {
   return triggerType === 'manual'
@@ -1289,8 +1354,11 @@ function recentTypeLabel(triggerType) {
 }
 
 async function loadRecent() {
-  const qs = currentRecentFilter === 'all' ? '' : `&triggerType=${currentRecentFilter}`;
-  const res = await sessionFetch(`${API}/api/stats/recent?limit=40${qs}`);
+  const { since, until } = quickRangeBounds(currentRecentRange);
+  const qs = new URLSearchParams({ limit: '100', since });
+  if (until) qs.set('until', until);
+  if (currentRecentFilter !== 'all') qs.set('triggerType', currentRecentFilter);
+  const res = await sessionFetch(`${API}/api/stats/recent?${qs.toString()}`);
   const rows = await res.json();
   const body = document.getElementById('recentBody');
   if (!rows.length) {
@@ -1761,11 +1829,34 @@ function manualHistoryDlrLabel(status, dlrAt) {
   return `<span style="color:${color}; font-weight:600;">${escapeAttr(label)}</span>${time}`;
 }
 
+// 'hour' | 'today' | 'yesterday' — calculé côté client pour tomber sur de
+// vraies frontières de journée dans le fuseau horaire réel de la personne
+// (un simple sinceHours=24 glissant ne correspond pas à "aujourd'hui").
+function quickRangeBounds(preset) {
+  const now = new Date();
+  if (preset === 'hour') {
+    return { since: new Date(now.getTime() - 3600 * 1000).toISOString(), until: null };
+  }
+  if (preset === 'yesterday') {
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const startYesterday = new Date(startToday.getTime() - 24 * 3600 * 1000);
+    return { since: startYesterday.toISOString(), until: startToday.toISOString() };
+  }
+  // 'today' (par défaut)
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  return { since: startToday.toISOString(), until: null };
+}
+
+let currentHistoryRange = 'today';
+
 async function loadManualHistory() {
   const body = document.getElementById('manualHistoryBody');
   body.innerHTML = '<tr><td colspan="13" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>';
   try {
-    const res = await adminFetch('/api/tests?limit=100');
+    const { since, until } = quickRangeBounds(currentHistoryRange);
+    const qs = new URLSearchParams({ limit: '100', since });
+    if (until) qs.set('until', until);
+    const res = await adminFetch(`/api/tests?${qs.toString()}`);
     const tests = await res.json();
     if (!tests.length) {
       body.innerHTML = '<tr><td colspan="13" style="text-align:center; color:var(--text-faint);">Aucun test manuel pour le moment.</td></tr>';
