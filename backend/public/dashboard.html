@@ -33,23 +33,11 @@
   }
   .mono { font-family: 'IBM Plex Mono', monospace; }
 
-  header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    padding: 28px clamp(16px, 4vw, 48px) 20px;
-    border-bottom: 1px solid var(--line);
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  header .title-block { display: flex; align-items: baseline; gap: 14px; }
-  header h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
-  header .subtitle { color: var(--text-dim); font-size: 13px; }
   .pulse-dot {
     width: 8px; height: 8px; border-radius: 50%; background: var(--good);
     box-shadow: 0 0 0 0 rgba(63,184,143,0.5);
     animation: pulse 2s infinite;
-    display: inline-block; margin-right: 8px;
+    display: inline-block; margin-right: 8px; flex-shrink: 0;
   }
   @keyframes pulse {
     0% { box-shadow: 0 0 0 0 rgba(63,184,143,0.5); }
@@ -67,7 +55,79 @@
     font-size: 13px;
   }
 
-  main { padding: 28px clamp(16px, 4vw, 48px) 48px; max-width: 1320px; margin: 0 auto; }
+  /* ---------- Mise en page générale : sidebar + zone de contenu ---------- */
+
+  .app-shell { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 220px; flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .sidebar-brand {
+    display: flex; align-items: center;
+    font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
+    padding: 22px 18px 18px;
+  }
+  .sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; flex: 1; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    background: none; border: none; color: var(--text-dim);
+    font-family: inherit; font-size: 13.5px; text-align: left;
+    padding: 10px 12px; border-radius: 8px; cursor: pointer;
+    position: relative;
+  }
+  .nav-item:hover { background: var(--surface-2); color: var(--text); }
+  .nav-item.active { background: var(--good-dim); color: var(--good); }
+  .nav-item .nav-icon { font-size: 15px; width: 18px; text-align: center; flex-shrink: 0; }
+  .nav-item .nav-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--bad);
+    margin-left: auto; flex-shrink: 0; display: none;
+  }
+  .nav-item .nav-dot.show { display: block; }
+  .sidebar-footer {
+    padding: 14px 18px 20px; font-size: 11px; color: var(--text-faint);
+    border-top: 1px solid var(--line);
+  }
+
+  .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  .content-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 24px clamp(16px, 3vw, 40px) 18px;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap; gap: 12px;
+  }
+  .content-topbar h1 { font-size: 19px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+
+  main { padding: 26px clamp(16px, 3vw, 40px) 48px; max-width: 1320px; width: 100%; margin: 0 auto; }
+
+  .page[hidden] { display: none; }
+
+  .charts-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 8px;
+  }
+  @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+
+  .scroll-card { max-height: 68vh; overflow-y: auto; }
+  .scroll-card thead th {
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
+  }
+
+  @media (max-width: 760px) {
+    .app-shell { flex-direction: column; }
+    .sidebar {
+      width: 100%; height: auto; position: static;
+      flex-direction: row; align-items: center;
+      overflow-x: auto;
+    }
+    .sidebar-brand { padding: 14px 14px; }
+    .sidebar-nav { flex-direction: row; padding: 6px 8px; flex: none; }
+    .nav-item { white-space: nowrap; }
+    .sidebar-footer { display: none; }
+  }
 
   .kpi-row {
     display: grid;
@@ -240,168 +300,194 @@
 </head>
 <body>
 
-<header>
-  <div class="title-block">
-    <h1><span class="pulse-dot"></span>SMS QoS Monitor</h1>
-    <span class="subtitle" id="lastUpdated">—</span>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><span class="pulse-dot"></span>SMS QoS Monitor</div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-page="overview" data-title="Vue d'ensemble">
+        <span class="nav-icon">◎</span>Vue d'ensemble<span class="nav-dot" id="navDotOverview"></span>
+      </button>
+      <button class="nav-item" data-page="routes" data-title="Routes &amp; pays">
+        <span class="nav-icon">▤</span>Routes &amp; pays
+      </button>
+      <button class="nav-item" data-page="recent" data-title="Tests récents">
+        <span class="nav-icon">≣</span>Tests récents
+      </button>
+      <button class="nav-item" data-page="config" data-title="Configuration">
+        <span class="nav-icon" id="navConfigIcon">🔒</span>Configuration
+      </button>
+    </nav>
+    <div class="sidebar-footer" id="lastUpdated">—</div>
+  </aside>
+
+  <div class="content">
+    <div class="content-topbar">
+      <h1 id="pageTitle">Vue d'ensemble</h1>
+      <div class="header-actions" id="topbarControls">
+        <a class="btn" id="exportBtn" href="#">Exporter CSV</a>
+        <select id="rangeSelect">
+          <option value="1">1 dernière heure</option>
+          <option value="6">6 dernières heures</option>
+          <option value="24" selected>24 dernières heures</option>
+          <option value="72">3 derniers jours</option>
+          <option value="168">7 derniers jours</option>
+        </select>
+      </div>
+    </div>
+
+    <main>
+
+      <div class="page" data-page="overview">
+        <div id="alertsBox"></div>
+
+        <div class="kpi-row" id="kpiRow"></div>
+
+        <div class="charts-grid">
+          <section>
+            <div class="section-head"><h2>Taux de délivrance dans le temps</h2></div>
+            <div class="chart-card" id="deliveryChart"></div>
+          </section>
+
+          <section>
+            <div class="section-head"><h2>Latence moyenne (envoi → réception réelle)</h2></div>
+            <div class="chart-card" id="latencyChart"></div>
+          </section>
+        </div>
+      </div>
+
+      <div class="page" data-page="routes" hidden>
+        <section>
+          <div class="section-head"><h2>Par pays / opérateur</h2></div>
+          <div class="dim-tabs">
+            <button class="dim-tab active" data-dim="country">Pays</button>
+            <button class="dim-tab" data-dim="operator">Opérateur</button>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th id="dimHeader">Pays</th>
+                  <th>Envoyés</th>
+                  <th>Latence moy. / P95</th>
+                  <th>Délivrance</th>
+                </tr>
+              </thead>
+              <tbody id="dimBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <div class="section-head"><h2>Par route</h2></div>
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Route</th>
+                  <th>Envoyés</th>
+                  <th>Latence moy. / P95</th>
+                  <th>Délivrance</th>
+                </tr>
+              </thead>
+              <tbody id="routesBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="page" data-page="recent" hidden>
+        <section>
+          <div class="section-head"><h2>Tests récents</h2></div>
+          <div class="table-card scroll-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Heure d'envoi</th>
+                  <th>Route</th>
+                  <th>Code</th>
+                  <th>Latence</th>
+                  <th>Statut</th>
+                </tr>
+              </thead>
+              <tbody id="recentBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="page" data-page="config" hidden>
+        <div class="config-card" id="configLockCard">
+          <div class="config-lock">
+            <input type="password" id="adminKeyInput" placeholder="Clé admin (ADMIN_API_KEY)" />
+            <button class="btn btn-sm btn-primary" id="adminKeyBtn">Se connecter</button>
+            <span id="adminKeyMsg" class="config-msg"></span>
+          </div>
+        </div>
+
+        <div id="configPanel" style="display:none;">
+
+          <div class="config-card">
+            <div class="section-head" style="margin-bottom:10px;">
+              <h2>Routes de test (une par SIM / destination)</h2>
+              <button class="btn btn-sm" id="adminLogoutBtn">Se déconnecter</button>
+            </div>
+            <div class="table-card">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nom</th><th>Fournisseur</th><th>Pays / opérateur</th><th>Numéro</th>
+                    <th>Appareil</th><th>Intervalle</th><th>Statut</th><th></th>
+                  </tr>
+                </thead>
+                <tbody id="adminRoutesBody"></tbody>
+              </table>
+            </div>
+
+            <div class="section-head" style="margin-top:20px; margin-bottom:0;"><h2 style="font-size:13px;">+ Nouvelle route</h2></div>
+            <div class="form-grid">
+              <div><label>Nom</label><input id="newRouteName" placeholder="Orange FR - SIM test 1" /></div>
+              <div><label>Fournisseur</label><select id="newRouteProvider"></select></div>
+              <div><label>Pays</label><input id="newRouteCountry" placeholder="FR" /></div>
+              <div><label>Opérateur</label><input id="newRouteOperator" placeholder="Orange" /></div>
+              <div><label>Numéro destination</label><input id="newRouteDest" placeholder="+336..." /></div>
+              <div><label>Appareil (SIM réceptrice)</label><select id="newRouteDevice"></select></div>
+              <div><label>Intervalle (min)</label><input id="newRouteInterval" type="number" min="1" value="10" /></div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-sm btn-primary" id="createRouteBtn">Créer la route</button>
+              <span id="createRouteMsg" class="config-msg"></span>
+            </div>
+          </div>
+
+          <div class="config-card">
+            <div class="section-head" style="margin-bottom:10px;"><h2>Appareils (téléphones Android)</h2></div>
+            <div class="table-card">
+              <table>
+                <thead>
+                  <tr><th>Nom</th><th>Numéro</th><th>Vu pour la dernière fois</th><th colspan="2"></th></tr>
+                </thead>
+                <tbody id="adminDevicesBody"></tbody>
+              </table>
+            </div>
+
+            <div class="section-head" style="margin-top:20px; margin-bottom:0;"><h2 style="font-size:13px;">+ Nouvel appareil</h2></div>
+            <div class="form-grid">
+              <div><label>Nom</label><input id="newDeviceName" placeholder="Pixel test 1" /></div>
+              <div><label>Numéro (optionnel)</label><input id="newDeviceNumber" placeholder="+336..." /></div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-sm btn-primary" id="createDeviceBtn">Créer l'appareil</button>
+              <span id="createDeviceMsg" class="config-msg"></span>
+            </div>
+            <div class="apikey-box" id="newDeviceKeyBox"></div>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
   </div>
-  <div class="header-actions">
-    <a class="btn" id="exportBtn" href="#">Exporter CSV</a>
-    <select id="rangeSelect">
-      <option value="1">1 dernière heure</option>
-      <option value="6">6 dernières heures</option>
-      <option value="24" selected>24 dernières heures</option>
-      <option value="72">3 derniers jours</option>
-      <option value="168">7 derniers jours</option>
-    </select>
-  </div>
-</header>
-
-<main>
-
-  <div id="alertsBox"></div>
-
-  <div class="kpi-row" id="kpiRow"></div>
-
-  <section>
-    <div class="section-head"><h2>Taux de délivrance dans le temps</h2></div>
-    <div class="chart-card" id="deliveryChart"></div>
-  </section>
-
-  <section>
-    <div class="section-head"><h2>Latence moyenne (envoi → réception réelle)</h2></div>
-    <div class="chart-card" id="latencyChart"></div>
-  </section>
-
-  <section>
-    <div class="section-head"><h2>Par pays / opérateur</h2></div>
-    <div class="dim-tabs">
-      <button class="dim-tab active" data-dim="country">Pays</button>
-      <button class="dim-tab" data-dim="operator">Opérateur</button>
-    </div>
-    <div class="table-card">
-      <table>
-        <thead>
-          <tr>
-            <th id="dimHeader">Pays</th>
-            <th>Envoyés</th>
-            <th>Latence moy. / P95</th>
-            <th>Délivrance</th>
-          </tr>
-        </thead>
-        <tbody id="dimBody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section>
-    <div class="section-head"><h2>Par route</h2></div>
-    <div class="table-card">
-      <table>
-        <thead>
-          <tr>
-            <th>Route</th>
-            <th>Envoyés</th>
-            <th>Latence moy. / P95</th>
-            <th>Délivrance</th>
-          </tr>
-        </thead>
-        <tbody id="routesBody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section>
-    <div class="section-head"><h2>Tests récents</h2></div>
-    <div class="table-card">
-      <table>
-        <thead>
-          <tr>
-            <th>Heure d'envoi</th>
-            <th>Route</th>
-            <th>Code</th>
-            <th>Latence</th>
-            <th>Statut</th>
-          </tr>
-        </thead>
-        <tbody id="recentBody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section>
-    <div class="section-head"><h2>Configuration — routes &amp; appareils</h2></div>
-
-    <div class="config-card" id="configLockCard">
-      <div class="config-lock">
-        <input type="password" id="adminKeyInput" placeholder="Clé admin (ADMIN_API_KEY)" />
-        <button class="btn btn-sm btn-primary" id="adminKeyBtn">Se connecter</button>
-        <span id="adminKeyMsg" class="config-msg"></span>
-      </div>
-    </div>
-
-    <div id="configPanel" style="display:none;">
-
-      <div class="config-card">
-        <div class="section-head" style="margin-bottom:10px;">
-          <h2>Routes de test (une par SIM / destination)</h2>
-          <button class="btn btn-sm" id="adminLogoutBtn">Se déconnecter</button>
-        </div>
-        <div class="table-card">
-          <table>
-            <thead>
-              <tr>
-                <th>Nom</th><th>Fournisseur</th><th>Pays / opérateur</th><th>Numéro</th>
-                <th>Appareil</th><th>Intervalle</th><th>Statut</th><th></th>
-              </tr>
-            </thead>
-            <tbody id="adminRoutesBody"></tbody>
-          </table>
-        </div>
-
-        <div class="section-head" style="margin-top:20px; margin-bottom:0;"><h2 style="font-size:13px;">+ Nouvelle route</h2></div>
-        <div class="form-grid">
-          <div><label>Nom</label><input id="newRouteName" placeholder="Orange FR - SIM test 1" /></div>
-          <div><label>Fournisseur</label><select id="newRouteProvider"></select></div>
-          <div><label>Pays</label><input id="newRouteCountry" placeholder="FR" /></div>
-          <div><label>Opérateur</label><input id="newRouteOperator" placeholder="Orange" /></div>
-          <div><label>Numéro destination</label><input id="newRouteDest" placeholder="+336..." /></div>
-          <div><label>Appareil (SIM réceptrice)</label><select id="newRouteDevice"></select></div>
-          <div><label>Intervalle (min)</label><input id="newRouteInterval" type="number" min="1" value="10" /></div>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-sm btn-primary" id="createRouteBtn">Créer la route</button>
-          <span id="createRouteMsg" class="config-msg"></span>
-        </div>
-      </div>
-
-      <div class="config-card">
-        <div class="section-head" style="margin-bottom:10px;"><h2>Appareils (téléphones Android)</h2></div>
-        <div class="table-card">
-          <table>
-            <thead>
-              <tr><th>Nom</th><th>Numéro</th><th>Vu pour la dernière fois</th><th colspan="2"></th></tr>
-            </thead>
-            <tbody id="adminDevicesBody"></tbody>
-          </table>
-        </div>
-
-        <div class="section-head" style="margin-top:20px; margin-bottom:0;"><h2 style="font-size:13px;">+ Nouvel appareil</h2></div>
-        <div class="form-grid">
-          <div><label>Nom</label><input id="newDeviceName" placeholder="Pixel test 1" /></div>
-          <div><label>Numéro (optionnel)</label><input id="newDeviceNumber" placeholder="+336..." /></div>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-sm btn-primary" id="createDeviceBtn">Créer l'appareil</button>
-          <span id="createDeviceMsg" class="config-msg"></span>
-        </div>
-        <div class="apikey-box" id="newDeviceKeyBox"></div>
-      </div>
-
-    </div>
-  </section>
-
-</main>
+</div>
 
 <script>
 const API = ''; // même origine que le dashboard
@@ -570,7 +656,11 @@ async function loadAlerts() {
   const res = await fetch(`${API}/api/alerts?status=active`);
   const alerts = await res.json();
   const box = document.getElementById('alertsBox');
-  if (!alerts.length) { box.innerHTML = ''; return; }
+  if (!alerts.length) {
+    box.innerHTML = '';
+    document.getElementById('navDotOverview').classList.remove('show');
+    return;
+  }
 
   const hasCritical = alerts.some(a => a.severity === 'critical');
   box.innerHTML = `
@@ -585,6 +675,7 @@ async function loadAlerts() {
       `).join('')}
     </div>
   `;
+  document.getElementById('navDotOverview').classList.toggle('show', alerts.length > 0);
 }
 
 async function loadByDimension(hours) {
@@ -612,6 +703,22 @@ async function loadByDimension(hours) {
     </tr>`;
   }).join('');
 }
+
+// ---------- Navigation par pages (sidebar) ----------
+
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    const page = btn.dataset.page;
+    document.querySelectorAll('.page').forEach(p => { p.hidden = p.dataset.page !== page; });
+    document.getElementById('pageTitle').textContent = btn.dataset.title || btn.textContent.trim();
+
+    // Le sélecteur de période et l'export CSV n'ont pas de sens sur la page Configuration
+    document.getElementById('topbarControls').style.display = page === 'config' ? 'none' : 'flex';
+  });
+});
 
 document.querySelectorAll('.dim-tab').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -680,6 +787,7 @@ async function adminFetch(path, opts) {
 function showConfigLock(msg) {
   document.getElementById('configPanel').style.display = 'none';
   document.getElementById('configLockCard').style.display = 'block';
+  document.getElementById('navConfigIcon').textContent = '🔒';
   const m = document.getElementById('adminKeyMsg');
   m.textContent = msg || '';
   m.className = 'config-msg err';
@@ -688,6 +796,7 @@ function showConfigLock(msg) {
 function showConfigPanel() {
   document.getElementById('configLockCard').style.display = 'none';
   document.getElementById('configPanel').style.display = 'block';
+  document.getElementById('navConfigIcon').textContent = '⚙';
 }
 
 async function tryLoadConfigSection() {
