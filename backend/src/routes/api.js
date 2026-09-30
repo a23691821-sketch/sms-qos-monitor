@@ -66,7 +66,7 @@ router.post("/devices", requireAdmin, (req, res) => {
 // Inclut api_key : endpoint protégé par la clé admin, nécessaire pour ré-afficher
 // la clé de pairage d'un appareil déjà créé (ex: réinstallation de l'app).
 router.get("/devices", requireAdmin, (req, res) => {
-  res.json(db.prepare(`SELECT id, name, phone_number, api_key, last_seen_at, created_at FROM devices`).all());
+  res.json(db.prepare(`SELECT id, name, phone_number, api_key, last_seen_at, last_heartbeat_at, created_at FROM devices`).all());
 });
 
 // Renomme un appareil et/ou corrige son numéro (jamais la clé API, qui ne

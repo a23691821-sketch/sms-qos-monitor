@@ -69,13 +69,47 @@ object ApiClient {
             put("receivedAt", receivedAtIso)
         }
 
-        sendOnce(backendUrl, json, retriesLeft = 2)
+        sendOnce("$backendUrl/api/webhook/sms-received", json, retriesLeft = 2)
     }
 
-    private fun sendOnce(backendUrl: String, json: JSONObject, retriesLeft: Int) {
+    /**
+     * Signal périodique "l'app est vivante", envoyé indépendamment de toute
+     * réception de SMS (contrairement à reportReceivedSms ci-dessus). Permet
+     * au backend de distinguer "aucun SMS reçu récemment" (peut être normal,
+     * ex: route peu fréquente) de "le téléphone/l'app ne répond plus".
+     * Version synchrone (bloquante) : appelée depuis un Worker, déjà sur un
+     * thread d'arrière-plan dédié — pas besoin de re-enqueue une callback async.
+     */
+    fun sendHeartbeatSync(context: Context): Boolean {
+        val backendUrl = getBackendUrl(context)
+        val apiKey = getApiKey(context)
+        if (backendUrl.isBlank() || apiKey.isBlank()) {
+            Log.w(TAG, "Backend non configuré, heartbeat ignoré")
+            return false
+        }
+
+        val json = JSONObject().apply { put("apiKey", apiKey) }
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val request = Request.Builder()
-            .url("$backendUrl/api/webhook/sms-received")
+            .url("$backendUrl/api/webhook/heartbeat")
+            .post(json.toString().toRequestBody(mediaType))
+            .build()
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                Log.i(TAG, "Heartbeat envoyé, statut ${response.code}")
+                response.isSuccessful
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Echec envoi heartbeat: ${e.message}")
+            false
+        }
+    }
+
+    private fun sendOnce(url: String, json: JSONObject, retriesLeft: Int) {
+        val mediaType = "application/json; charset=utf-8".toMediaType()
+        val request = Request.Builder()
+            .url(url)
             .post(json.toString().toRequestBody(mediaType))
             .build()
 
@@ -83,7 +117,7 @@ object ApiClient {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e(TAG, "Echec envoi webhook: ${e.message}")
                 if (retriesLeft > 0) {
-                    sendOnce(backendUrl, json, retriesLeft - 1)
+                    sendOnce(url, json, retriesLeft - 1)
                 }
             }
 

@@ -46,10 +46,16 @@ class MainActivity : AppCompatActivity() {
             val key = apiKeyInput.text.toString()
             ApiClient.saveConfig(this, url, key)
             requestPermissionsIfNeeded()
+            HeartbeatWorker.schedule(this)
             updateStatus()
         }
 
         requestPermissionsIfNeeded()
+        // Idempotent (ExistingPeriodicWorkPolicy.KEEP) : sûr à rappeler à
+        // chaque ouverture de l'app, y compris si le backend n'est pas encore
+        // configuré (le Worker se contente alors de ne rien faire, voir
+        // HeartbeatWorker.doWork).
+        HeartbeatWorker.schedule(this)
         updateStatus()
     }
 

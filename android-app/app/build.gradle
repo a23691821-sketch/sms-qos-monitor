@@ -35,4 +35,8 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // Heartbeat périodique "l'app est vivante" : WorkManager gère la persistance
+    // à travers les redémarrages/Doze bien plus proprement qu'un AlarmManager
+    // fait main, au prix d'un intervalle minimum de 15 min (imposé par l'API).
+    implementation 'androidx.work:work-runtime-ktx:2.9.1'
 }

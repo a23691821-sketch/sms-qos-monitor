@@ -46,6 +46,20 @@ router.post("/sms-received", (req, res) => {
   res.json({ matched: true, code, latencyMs });
 });
 
+// Heartbeat périodique envoyé par l'app Android (indépendamment de toute
+// réception de SMS), pour savoir si le téléphone/l'app est vivant même sans
+// trafic de test en cours. Body attendu: { apiKey }
+router.post("/heartbeat", (req, res) => {
+  const { apiKey } = req.body || {};
+  if (!apiKey) return res.status(400).json({ error: "apiKey requis" });
+
+  const device = db.prepare(`SELECT id FROM devices WHERE api_key = ?`).get(apiKey);
+  if (!device) return res.status(401).json({ error: "apiKey invalide" });
+
+  db.prepare(`UPDATE devices SET last_heartbeat_at = ? WHERE id = ?`).run(new Date().toISOString(), device.id);
+  res.json({ ok: true });
+});
+
 // DLR (accusé de livraison) envoyé de manière asynchrone par le fournisseur.
 // Chaque fournisseur a son propre format et vocabulaire de statut — plutôt que
 // de deviner à l'avance, on : (1) accepte GET et POST, JSON ou query string,

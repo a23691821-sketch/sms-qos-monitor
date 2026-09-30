@@ -114,4 +114,14 @@ if (!testMessageColumns.includes("received_body")) {
   db.exec("ALTER TABLE test_messages ADD COLUMN received_body TEXT");
 }
 
+// "Heartbeat" périodique envoyé par l'app Android indépendamment de toute
+// réception de SMS (contrairement à last_seen_at, qui ne bouge que quand un
+// SMS de test est reçu et donc ne dit rien si une route ne teste pas ce
+// téléphone en ce moment). Permet de savoir si le téléphone/l'app est bien
+// vivant même en l'absence de tout trafic SMS.
+const devicesColumns = db.prepare("PRAGMA table_info(devices)").all().map((c) => c.name);
+if (!devicesColumns.includes("last_heartbeat_at")) {
+  db.exec("ALTER TABLE devices ADD COLUMN last_heartbeat_at TEXT");
+}
+
 module.exports = db;

@@ -5,6 +5,10 @@ const db = require("./db");
 const DELIVERY_RATE_THRESHOLD = parseFloat(process.env.ALERT_DELIVERY_RATE_THRESHOLD || "0.8");
 const DELIVERY_RATE_MIN_SAMPLES = parseInt(process.env.ALERT_DELIVERY_RATE_MIN_SAMPLES || "5", 10);
 const DEVICE_STALE_MINUTES = parseInt(process.env.ALERT_DEVICE_STALE_MINUTES || "60", 10);
+// Le heartbeat de l'app tourne toutes les 15 min (minimum imposé par WorkManager
+// côté Android) ; seuil un peu au-dessus pour tolérer un battement manqué
+// (réseau temporairement indisponible) sans fausse alerte.
+const HEARTBEAT_STALE_MINUTES = parseInt(process.env.ALERT_HEARTBEAT_STALE_MINUTES || "20", 10);
 const WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL || null;
 
 async function notifyWebhook(alert) {
@@ -105,6 +109,32 @@ async function evaluateAlerts() {
       if (alert) newAlerts.push(alert);
     } else {
       resolveAlert("device_stale", scopeKey);
+    }
+  }
+
+  // --- Heartbeat de l'app (indépendant des SMS) : ne concerne que les
+  // téléphones dont l'app a déjà envoyé au moins un heartbeat (les anciennes
+  // versions de l'app, pas encore mises à jour, n'en envoient jamais et ne
+  // doivent donc pas déclencher de fausses alertes en continu) ---
+  const heartbeatDevices = db
+    .prepare(`SELECT id, name, last_heartbeat_at FROM devices WHERE last_heartbeat_at IS NOT NULL`)
+    .all();
+
+  const heartbeatCutoff = Date.now() - HEARTBEAT_STALE_MINUTES * 60 * 1000;
+  for (const device of heartbeatDevices) {
+    const scopeKey = `device_heartbeat:${device.id}`;
+    const lastMs = new Date(device.last_heartbeat_at).getTime();
+
+    if (lastMs < heartbeatCutoff) {
+      const alert = openAlert(
+        "device_offline",
+        scopeKey,
+        "critical",
+        `Téléphone "${device.name}": aucun heartbeat depuis plus de ${HEARTBEAT_STALE_MINUTES} min — l'app est peut-être arrêtée, le téléphone éteint ou hors réseau`
+      );
+      if (alert) newAlerts.push(alert);
+    } else {
+      resolveAlert("device_offline", scopeKey);
     }
   }
 

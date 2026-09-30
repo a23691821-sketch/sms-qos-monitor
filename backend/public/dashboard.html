@@ -715,7 +715,7 @@
             <div class="table-card">
               <table>
                 <thead>
-                  <tr><th>Nom</th><th>Numéro</th><th>Vu pour la dernière fois</th><th colspan="2"></th></tr>
+                  <tr><th>Nom</th><th>Numéro</th><th>Vu pour la dernière fois</th><th>App active</th><th colspan="2"></th></tr>
                 </thead>
                 <tbody id="adminDevicesBody"></tbody>
               </table>
@@ -801,6 +801,21 @@ function fmtTimeShort(iso) {
 function fmtTimeOnly(iso) {
   const d = new Date(iso);
   return d.toLocaleString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+// Statut de l'app Android d'après son dernier heartbeat (indépendant des SMS
+// reçus — voir last_heartbeat_at). null/jamais reçu = app pas encore mise à
+// jour vers la version avec heartbeat, on ne peut pas encore se prononcer.
+const HEARTBEAT_STALE_MINUTES = 20;
+function heartbeatStatusLabel(lastHeartbeatAt) {
+  if (!lastHeartbeatAt) {
+    return `<span class="pill pending" title="Cet appareil n'a jamais envoyé de heartbeat (app pas encore mise à jour, ou pas encore démarrée)">Inconnu</span>`;
+  }
+  const ageMin = (Date.now() - new Date(lastHeartbeatAt).getTime()) / 60000;
+  if (ageMin <= HEARTBEAT_STALE_MINUTES) {
+    return `<span class="pill delivered" title="Dernier heartbeat: ${fmtTime(lastHeartbeatAt)}">● Actif</span>`;
+  }
+  return `<span class="pill failed" title="Dernier heartbeat: ${fmtTime(lastHeartbeatAt)} (il y a ${Math.round(ageMin)} min)">● Inactif</span>`;
 }
 
 let currentDimension = 'country';
@@ -1225,7 +1240,7 @@ function renderAdminRoutes(routes, devices) {
 function renderAdminDevices(devices) {
   const body = document.getElementById('adminDevicesBody');
   if (!devices.length) {
-    body.innerHTML = `<tr><td colspan="5" class="empty-state">Aucun appareil. Crée-en un ci-dessous.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="empty-state">Aucun appareil. Crée-en un ci-dessous.</td></tr>`;
     return;
   }
   body.innerHTML = devices.map(d => `
@@ -1233,6 +1248,7 @@ function renderAdminDevices(devices) {
       <td><input type="text" value="${escapeAttr(d.name)}" class="device-name-input" style="width:100%;" /></td>
       <td><input type="text" value="${escapeAttr(d.phone_number || '')}" class="device-phone-input" placeholder="+336..." style="width:100%;" /></td>
       <td class="mono">${d.last_seen_at ? fmtTime(d.last_seen_at) : 'jamais'}</td>
+      <td>${heartbeatStatusLabel(d.last_heartbeat_at)}</td>
       <td><button class="btn btn-sm device-save-btn">Enregistrer</button></td>
       <td><button class="btn btn-sm device-showkey-btn" data-key="${d.api_key}">Voir la clé API</button></td>
     </tr>`).join('');
