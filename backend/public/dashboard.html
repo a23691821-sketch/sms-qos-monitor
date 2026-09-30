@@ -104,6 +104,11 @@
     padding: 14px 18px 20px; font-size: 11px; color: var(--text-faint);
     border-top: 1px solid var(--line);
   }
+  .logout-link {
+    display: block; margin-top: 8px; font-size: 12px; color: var(--text-dim);
+    text-decoration: none; cursor: pointer;
+  }
+  .logout-link:hover { color: var(--bad); }
 
   .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
@@ -347,7 +352,10 @@
         <span class="nav-icon" id="navConfigIcon">🔒</span>Configuration
       </button>
     </nav>
-    <div class="sidebar-footer" id="lastUpdated">—</div>
+    <div class="sidebar-footer">
+      <span id="lastUpdated">—</span>
+      <a class="logout-link" id="logoutLink">Se déconnecter</a>
+    </div>
   </aside>
 
   <div class="content">
@@ -523,6 +531,24 @@
 const API = ''; // même origine que le dashboard
 const ADMIN_KEY_STORAGE = 'smsQosAdminKey';
 
+// Toutes les lectures du dashboard exigent désormais une session (cookie posé
+// par /login.html). Si la session expire pendant que la page est ouverte,
+// l'API renvoie 401 et on renvoie proprement vers la page de connexion
+// plutôt que de laisser des tableaux vides sans explication.
+async function sessionFetch(url) {
+  const res = await fetch(url);
+  if (res.status === 401) {
+    window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname);
+    throw new Error('session_expired');
+  }
+  return res;
+}
+
+document.getElementById('logoutLink').addEventListener('click', async () => {
+  try { await fetch('/api/logout', { method: 'POST' }); } catch (e) { /* on redirige quand même */ }
+  window.location.href = '/login.html';
+});
+
 function fmtMs(ms) {
   if (ms == null) return '—';
   if (ms < 1000) return ms + ' ms';
@@ -625,7 +651,7 @@ function renderLineChart(containerId, labels, points, opts) {
 }
 
 async function loadOverview(hours) {
-  const res = await fetch(`${API}/api/stats/overview?sinceHours=${hours}`);
+  const res = await sessionFetch(`${API}/api/stats/overview?sinceHours=${hours}`);
   const data = await res.json();
   renderKpis(data.totals);
   renderRoutesTable(data.byRoute);
@@ -683,7 +709,7 @@ function renderRoutesTable(routes) {
 }
 
 async function loadAlerts() {
-  const res = await fetch(`${API}/api/alerts?status=active`);
+  const res = await sessionFetch(`${API}/api/alerts?status=active`);
   const alerts = await res.json();
   const box = document.getElementById('alertsBox');
   if (!alerts.length) {
@@ -709,7 +735,7 @@ async function loadAlerts() {
 }
 
 async function loadByDimension(hours) {
-  const res = await fetch(`${API}/api/stats/by-dimension?dimension=${currentDimension}&sinceHours=${hours}`);
+  const res = await sessionFetch(`${API}/api/stats/by-dimension?dimension=${currentDimension}&sinceHours=${hours}`);
   const data = await res.json();
   document.getElementById('dimHeader').textContent = currentDimension === 'country' ? 'Pays' : 'Opérateur';
   const body = document.getElementById('dimBody');
@@ -769,7 +795,7 @@ const MAX_TIMESERIES_BUCKETS = 400;
 async function getBucketMinutes(hours) {
   let intervalMinutes = 15;
   try {
-    const res = await fetch(`${API}/api/stats/interval`);
+    const res = await sessionFetch(`${API}/api/stats/interval`);
     const data = await res.json();
     intervalMinutes = data.intervalMinutes || 15;
   } catch (e) { /* on garde la valeur par défaut si l'appel échoue */ }
@@ -784,7 +810,7 @@ async function getBucketMinutes(hours) {
 
 async function loadTimeseries(hours) {
   const bucketMinutes = await getBucketMinutes(hours);
-  const res = await fetch(`${API}/api/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutes}`);
+  const res = await sessionFetch(`${API}/api/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutes}`);
   const series = await res.json();
   const labels = series.map(s => fmtTime(s.time));
 
@@ -796,7 +822,7 @@ async function loadTimeseries(hours) {
 }
 
 async function loadRecent() {
-  const res = await fetch(`${API}/api/stats/recent?limit=40`);
+  const res = await sessionFetch(`${API}/api/stats/recent?limit=40`);
   const rows = await res.json();
   const body = document.getElementById('recentBody');
   if (!rows.length) {

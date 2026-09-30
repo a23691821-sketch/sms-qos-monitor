@@ -6,16 +6,28 @@ const path = require("path");
 const webhookRoutes = require("./routes/webhook");
 const apiRoutes = require("./routes/api");
 const { startScheduler } = require("./scheduler");
+const { requireSession, handleLogin, handleLogout } = require("./session-auth");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "..", "public")));
 
+// Appelés automatiquement par le fournisseur SMS et par l'app Android : ces
+// systèmes tiers ne peuvent pas s'authentifier, donc montés AVANT le
+// middleware de session ci-dessous, jamais concernés par lui.
 app.use("/api/webhook", webhookRoutes);
-app.use("/api", apiRoutes);
 
+// Routes publiques d'authentification + health check (aucune donnée sensible)
+app.post("/api/login", handleLogin);
+app.post("/api/logout", handleLogout);
 app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+app.get("/login.html", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "login.html")));
+
+// Tout ce qui est déclaré après cette ligne exige un cookie de session valide
+app.use(requireSession);
+
+app.use(express.static(path.join(__dirname, "..", "public")));
+app.use("/api", apiRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
