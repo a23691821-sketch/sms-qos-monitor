@@ -164,7 +164,10 @@
   }
   @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
 
-  .scroll-card { max-height: 68vh; overflow-y: auto; }
+  /* Auparavant limité à 68vh avec défilement interne, ce qui masquait la
+     majorité des lignes demandées derrière une barre de scroll peu visible.
+     Le tableau affiche maintenant toutes les lignes ; c'est la page entière
+     qui défile, pas un cadre interne. */
   .scroll-card thead th {
     position: sticky; top: 0; background: var(--surface); z-index: 1;
   }
