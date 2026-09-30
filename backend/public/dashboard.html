@@ -759,8 +759,31 @@ document.querySelectorAll('.dim-tab').forEach(btn => {
   });
 });
 
+// Calé sur la vraie cadence d'envoi (l'intervalle configuré sur les routes
+// actives) plutôt que sur une échelle fixe déconnectée de la config : si tu
+// passes l'intervalle à 15 min, les graphiques suivent automatiquement.
+// Au-delà d'un certain nombre de points (période longue), on élargit le
+// bucket par multiples entiers de l'intervalle pour rester lisible.
+const MAX_TIMESERIES_BUCKETS = 400;
+
+async function getBucketMinutes(hours) {
+  let intervalMinutes = 15;
+  try {
+    const res = await fetch(`${API}/api/stats/interval`);
+    const data = await res.json();
+    intervalMinutes = data.intervalMinutes || 15;
+  } catch (e) { /* on garde la valeur par défaut si l'appel échoue */ }
+
+  const rawBuckets = (hours * 60) / intervalMinutes;
+  if (rawBuckets > MAX_TIMESERIES_BUCKETS) {
+    const multiplier = Math.ceil(rawBuckets / MAX_TIMESERIES_BUCKETS);
+    return intervalMinutes * multiplier;
+  }
+  return intervalMinutes;
+}
+
 async function loadTimeseries(hours) {
-  const bucketMinutes = hours <= 6 ? 10 : hours <= 24 ? 30 : hours <= 72 ? 120 : 360;
+  const bucketMinutes = await getBucketMinutes(hours);
   const res = await fetch(`${API}/api/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutes}`);
   const series = await res.json();
   const labels = series.map(s => fmtTime(s.time));

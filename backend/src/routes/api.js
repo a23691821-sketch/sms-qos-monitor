@@ -285,6 +285,17 @@ router.post("/alerts/:id/resolve", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// Intervalle d'envoi le plus fin parmi les routes actives : sert au dashboard
+// à caler la granularité des graphiques temporels sur la vraie cadence de test
+// plutôt que sur une heuristique déconnectée de la config (pas besoin de la
+// clé admin, aucune donnée sensible n'est exposée ici).
+router.get("/stats/interval", (req, res) => {
+  const row = db
+    .prepare(`SELECT MIN(interval_minutes) as intervalMinutes FROM routes WHERE active = 1`)
+    .get();
+  res.json({ intervalMinutes: row.intervalMinutes || 15 });
+});
+
 router.get("/stats/timeseries", (req, res) => {
   const sinceHours = parseInt(req.query.sinceHours || "24", 10);
   const bucketMinutes = parseInt(req.query.bucketMinutes || "60", 10);
