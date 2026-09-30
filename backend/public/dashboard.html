@@ -590,7 +590,8 @@
                       <th>Code</th>
                       <th>Destinataire</th>
                       <th>Message</th>
-                      <th>Sender ID</th>
+                      <th>Sender envoyé</th>
+                      <th>Sender reçu</th>
                       <th>Route / Opérateur</th>
                       <th>Appareil</th>
                       <th>Fournisseur</th>
@@ -600,7 +601,7 @@
                     </tr>
                   </thead>
                   <tbody id="manualHistoryBody">
-                    <tr><td colspan="11" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>
+                    <tr><td colspan="12" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1302,6 +1303,20 @@ document.querySelectorAll('.sub-tab').forEach(btn => {
 
 document.getElementById('manualHistoryRefreshBtn').addEventListener('click', loadManualHistory);
 
+// Sender ID réellement vu par le téléphone (received_from_number, rempli par
+// l'app Android à la réception du SMS) par opposition au sender_id demandé au
+// fournisseur : certains opérateurs/fournisseurs réécrivent ou remplacent le
+// sender ID en transit, donc les deux valeurs peuvent légitimement différer.
+// Si le test n'a pas encore été reçu sur le téléphone, on n'a simplement pas
+// encore l'info (pas forcément un problème).
+function senderRecuLabel(senderSent, senderReceived) {
+  if (!senderReceived) return '<span style="color:var(--text-faint);">—</span>';
+  const mismatch = senderSent && senderSent !== senderReceived;
+  const color = mismatch ? 'var(--warn)' : 'var(--text)';
+  const title = mismatch ? ` title="Différent du sender demandé (${escapeAttr(senderSent)})"` : '';
+  return `<span style="color:${color};"${title}>${escapeAttr(senderReceived)}</span>`;
+}
+
 // Statut + horodatage du DLR réunis dans une seule cellule, sur une seule
 // ligne ("Délivré · 12:03:04"), pour ne pas ajouter de colonne supplémentaire.
 function manualHistoryDlrLabel(status, dlrAt) {
@@ -1320,12 +1335,12 @@ function manualHistoryDlrLabel(status, dlrAt) {
 
 async function loadManualHistory() {
   const body = document.getElementById('manualHistoryBody');
-  body.innerHTML = '<tr><td colspan="11" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>';
+  body.innerHTML = '<tr><td colspan="12" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>';
   try {
     const res = await adminFetch('/api/tests?limit=100');
     const tests = await res.json();
     if (!tests.length) {
-      body.innerHTML = '<tr><td colspan="11" style="text-align:center; color:var(--text-faint);">Aucun test manuel pour le moment.</td></tr>';
+      body.innerHTML = '<tr><td colspan="12" style="text-align:center; color:var(--text-faint);">Aucun test manuel pour le moment.</td></tr>';
       return;
     }
     body.innerHTML = tests.map(t => `
@@ -1335,6 +1350,7 @@ async function loadManualHistory() {
         <td class="truncate-sm" title="${escapeAttr(t.destination_number)}">${escapeAttr(t.destination_number)}</td>
         <td class="truncate" title="${escapeAttr(t.message_body)}">${escapeAttr(t.message_body)}</td>
         <td class="truncate-sm">${escapeAttr(t.sender_id || '—')}</td>
+        <td class="truncate-sm">${senderRecuLabel(t.sender_id, t.received_from_number)}</td>
         <td class="truncate-sm" title="${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}">${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}</td>
         <td class="truncate-sm" title="${escapeAttr(t.device_name)}">${escapeAttr(t.device_name)}</td>
         <td>${escapeAttr(t.provider_id)}</td>
@@ -1345,7 +1361,7 @@ async function loadManualHistory() {
     `).join('');
   } catch (e) {
     if (e.message !== 'admin_unauthorized') {
-      body.innerHTML = '<tr><td colspan="11" style="text-align:center; color:var(--bad);">Erreur de chargement.</td></tr>';
+      body.innerHTML = '<tr><td colspan="12" style="text-align:center; color:var(--bad);">Erreur de chargement.</td></tr>';
     }
   }
 }
