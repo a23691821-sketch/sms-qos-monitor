@@ -148,7 +148,8 @@ router.patch("/routes/:id", requireAdmin, (req, res) => {
 router.post("/routes/:id/run-now", requireAdmin, async (req, res) => {
   const route = db.prepare(`SELECT * FROM routes WHERE id = ?`).get(req.params.id);
   if (!route) return res.status(404).json({ error: "route introuvable" });
-  const testId = await runTestForRoute(route);
+  const { content, senderId } = req.body || {};
+  const testId = await runTestForRoute(route, { content, senderId });
   res.json({ ok: true, testId });
 });
 

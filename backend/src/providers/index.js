@@ -87,12 +87,22 @@ function nowDateTimeParts() {
   };
 }
 
-async function sendTestSms(providerId, { to, body }) {
+async function sendTestSms(providerId, { to, body, senderId }) {
   const configs = loadProviderConfigs();
   const cfg = configs[providerId];
   if (!cfg) throw new Error(`Fournisseur inconnu: ${providerId}. Vérifie config/providers.json`);
 
-  const vars = { to, text: body, ...nowDateTimeParts(), ...cfg.staticVars };
+  // Priorité : senderId explicite (ex: saisi sur la page "Test manuel") >
+  // valeur par défaut du fournisseur (staticVars.senderId dans providers.json)
+  // > "SMS" en dernier recours. Utilisable dans bodyTemplate via {{senderId}}.
+  const vars = {
+    to,
+    text: body,
+    ...nowDateTimeParts(),
+    senderId: "SMS",
+    ...cfg.staticVars,
+    ...(senderId && senderId.trim() ? { senderId: senderId.trim() } : {}),
+  };
 
   if (CUSTOM_PROVIDERS[providerId]) {
     return CUSTOM_PROVIDERS[providerId].send(cfg, vars);

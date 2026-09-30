@@ -12,9 +12,12 @@ const lastRunByRoute = new Map();
 // Retourne l'id du test créé : permet à l'appelant (ex: bouton "Lancer un
 // test" du dashboard) de suivre ce test précis immédiatement, plutôt que
 // d'attendre le prochain cycle planifié ou de deviner quel id vient d'être créé.
-async function runTestForRoute(route) {
+// `overrides` (optionnel) : { content, senderId } — utilisé par la page
+// "Test manuel" pour personnaliser un envoi ponctuel ; le cycle planifié
+// normal (tickRoutes) n'en passe jamais.
+async function runTestForRoute(route, overrides = {}) {
   const code = generateTestCode();
-  const body = buildTestMessageBody(code);
+  const body = buildTestMessageBody(code, overrides.content);
   const sentAt = new Date().toISOString();
 
   const insert = db.prepare(`
@@ -24,7 +27,7 @@ async function runTestForRoute(route) {
   const { lastInsertRowid: testId } = insert.run(route.id, code, sentAt);
 
   try {
-    const result = await sendTestSms(route.provider_id, { to: route.destination_number, body });
+    const result = await sendTestSms(route.provider_id, { to: route.destination_number, body, senderId: overrides.senderId });
     db.prepare(`
       UPDATE test_messages
       SET provider_status = ?, provider_response = ?, provider_message_id = ?

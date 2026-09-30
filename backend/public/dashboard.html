@@ -523,6 +523,20 @@
               </div>
               <button class="btn btn-primary" id="manualRunBtn">Lancer un test</button>
             </div>
+
+            <div class="form-grid" style="margin-top:14px;">
+              <div style="grid-column: span 2;">
+                <label>Contenu du message (optionnel)</label>
+                <input id="manualContent" type="text" placeholder="Laisser vide pour le message par défaut" style="width:100%;" />
+              </div>
+              <div>
+                <label>Sender ID (optionnel)</label>
+                <input id="manualSenderId" type="text" placeholder="Laisser vide pour la valeur par défaut" style="width:100%;" />
+              </div>
+            </div>
+            <div style="font-size:11px; color:var(--text-faint); margin-top:6px;">
+              Le code de suivi (ex: QOS-XK4D2A) est toujours ajouté automatiquement à la fin du message : c'est lui qui permet de vérifier la réception réelle sur le téléphone.
+            </div>
             <div class="config-msg" id="manualRunMsg" style="margin-top:10px;"></div>
           </div>
 
@@ -1205,8 +1219,14 @@ document.getElementById('manualRunBtn').addEventListener('click', async () => {
   msg.textContent = '';
   msg.className = 'config-msg';
 
+  const content = document.getElementById('manualContent').value.trim();
+  const senderId = document.getElementById('manualSenderId').value.trim();
+
   try {
-    const res = await adminFetch(`/api/routes/${routeId}/run-now`, { method: 'POST' });
+    const res = await adminFetch(`/api/routes/${routeId}/run-now`, {
+      method: 'POST',
+      body: JSON.stringify({ content, senderId }),
+    });
     const data = await res.json();
     msg.textContent = 'Test envoyé, suivi en direct ci-dessous...';
     msg.className = 'config-msg ok';
@@ -1303,7 +1323,6 @@ function renderManualResult(test) {
           ${dlrDetails.originator ? `<div><span class="ml-label">Sender ID</span><span class="mono">${escapeAttr(dlrDetails.originator)}</span></div>` : ''}
           ${dlrDetails.phone ? `<div><span class="ml-label">MSISDN</span><span class="mono">${escapeAttr(dlrDetails.phone)}</span></div>` : ''}
           ${dlrDetails.state ? `<div><span class="ml-label">État SMPP</span><span class="mono">${escapeAttr(dlrDetails.state)}</span></div>` : ''}
-          ${dlrDetails.price != null ? `<div><span class="ml-label">Prix</span><span class="mono">${escapeAttr(dlrDetails.price)}</span></div>` : ''}
         </div>` : ''}
     `
     : `<div class="ml-meta ml-waiting">En attente du DLR fournisseur...</div>`;

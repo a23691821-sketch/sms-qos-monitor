@@ -13,7 +13,15 @@ function generateTestCode() {
   return `QOS-${code}`;
 }
 
-function buildTestMessageBody(code) {
+// customContent (optionnel, ex: depuis la page "Test manuel") : le code de
+// suivi reste TOUJOURS présent dans le corps, quel que soit le contenu perso,
+// car c'est le seul moyen de corréler la réception réelle sur le téléphone
+// (voir extractCode ci-dessous) — sans lui, le test enverrait bien un SMS
+// mais on ne saurait jamais s'il est arrivé.
+function buildTestMessageBody(code, customContent) {
+  if (customContent && customContent.trim()) {
+    return `${customContent.trim()} ${code}`;
+  }
   return `QOS-TEST ${code} - ne pas repondre`;
 }
 
