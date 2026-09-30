@@ -6,7 +6,6 @@
 <title>SMS QoS Monitor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <style>
   :root {
     --bg: #0F1619;
@@ -228,12 +227,12 @@
 
   <section>
     <div class="section-head"><h2>Taux de délivrance dans le temps</h2></div>
-    <div class="chart-card"><canvas id="deliveryChart"></canvas></div>
+    <div class="chart-card" id="deliveryChart"></div>
   </section>
 
   <section>
     <div class="section-head"><h2>Latence moyenne (envoi → réception réelle)</h2></div>
-    <div class="chart-card"><canvas id="latencyChart"></canvas></div>
+    <div class="chart-card" id="latencyChart"></div>
   </section>
 
   <section>
@@ -319,8 +318,81 @@ function fmtTime(iso) {
   return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-let deliveryChart, latencyChart;
 let currentDimension = 'country';
+
+// Mini-graphique en aires (ligne + remplissage) en SVG pur, sans dépendance
+// externe : évite tout point de défaillance lié à un CDN (bloqué par un
+// réseau, un bloqueur de pub, etc.). `points` est un tableau de nombres ou
+// null (valeur manquante, simplement omise du tracé).
+function renderLineChart(containerId, labels, points, opts) {
+  const { color, suffix = '', min = null, max = null } = opts || {};
+  const container = document.getElementById(containerId);
+  const width = container.clientWidth || 600;
+  const height = container.clientHeight || 220;
+  const padL = 34, padR = 8, padT = 10, padB = 22;
+  const plotW = Math.max(10, width - padL - padR);
+  const plotH = Math.max(10, height - padT - padB);
+
+  const known = points.filter((v) => v != null);
+  if (!known.length) {
+    container.innerHTML = `<div class="empty-state" style="height:100%;display:flex;align-items:center;justify-content:center;">Pas encore de données sur cette période.</div>`;
+    return;
+  }
+
+  const yMin = min != null ? min : Math.min(...known);
+  const yMax = max != null ? max : Math.max(...known);
+  const yRange = yMax - yMin || 1;
+
+  const n = points.length;
+  const xFor = (i) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const yFor = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
+
+  // Construit le tracé en ignorant les points manquants (pas d'interpolation
+  // artificielle à travers un trou de données).
+  let linePath = '';
+  let areaPath = '';
+  let penDown = false;
+  let lastX = null;
+  points.forEach((v, i) => {
+    if (v == null) { penDown = false; return; }
+    const x = xFor(i), y = yFor(v);
+    if (!penDown) {
+      linePath += `M ${x} ${y} `;
+      areaPath += `M ${x} ${padT + plotH} L ${x} ${y} `;
+      penDown = true;
+    } else {
+      linePath += `L ${x} ${y} `;
+      areaPath += `L ${x} ${y} `;
+    }
+    lastX = x;
+  });
+  if (lastX != null) areaPath += `L ${lastX} ${padT + plotH} Z`;
+
+  // Grille horizontale (4 lignes) + repères d'axe Y
+  const gridLines = [];
+  const yTicks = [];
+  for (let i = 0; i <= 4; i++) {
+    const v = yMin + (yRange * i) / 4;
+    const y = yFor(v);
+    gridLines.push(`<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="#26352233" stroke-width="1"/>`);
+    yTicks.push(`<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" font-family="IBM Plex Mono" fill="#5B6E69">${Math.round(v * 10) / 10}${suffix}</text>`);
+  }
+
+  // Repères d'axe X : au maximum ~6 étiquettes pour rester lisible
+  const xTickEvery = Math.max(1, Math.ceil(n / 6));
+  const xTicks = labels
+    .map((lab, i) => (i % xTickEvery === 0 || i === n - 1) ? `<text x="${xFor(i)}" y="${height - 6}" text-anchor="middle" font-size="10" font-family="IBM Plex Mono" fill="#5B6E69">${lab}</text>` : '')
+    .join('');
+
+  container.innerHTML = `
+    <svg width="100%" height="100%" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+      ${gridLines.join('')}
+      <path d="${areaPath}" fill="${color}22" stroke="none"/>
+      <path d="${linePath}" fill="none" stroke="${color}" stroke-width="2"/>
+      ${yTicks.join('')}
+      ${xTicks}
+    </svg>`;
+}
 
 async function loadOverview(hours) {
   const res = await fetch(`${API}/api/stats/overview?sinceHours=${hours}`);
@@ -445,28 +517,8 @@ async function loadTimeseries(hours) {
   const deliveryData = series.map(s => s.deliveryRate == null ? null : Math.round(s.deliveryRate * 1000) / 10);
   const latencyData = series.map(s => s.avgLatencyMs == null ? null : Math.round(s.avgLatencyMs / 100) / 10);
 
-  const chartDefaults = {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { grid: { color: '#26352233' }, ticks: { color: '#5B6E69', maxRotation: 0, autoSkip: true, font: { family: 'IBM Plex Mono', size: 10 } } },
-      y: { grid: { color: '#26352233' }, ticks: { color: '#5B6E69', font: { family: 'IBM Plex Mono', size: 10 } } }
-    }
-  };
-
-  if (deliveryChart) deliveryChart.destroy();
-  deliveryChart = new Chart(document.getElementById('deliveryChart'), {
-    type: 'line',
-    data: { labels, datasets: [{ data: deliveryData, borderColor: '#3FB88F', backgroundColor: '#3FB88F22', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 }] },
-    options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, max: 100, ticks: { ...chartDefaults.scales.y.ticks, callback: v => v + '%' } } } }
-  });
-
-  if (latencyChart) latencyChart.destroy();
-  latencyChart = new Chart(document.getElementById('latencyChart'), {
-    type: 'line',
-    data: { labels, datasets: [{ data: latencyData, borderColor: '#5B7FBF', backgroundColor: '#5B7FBF22', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 }] },
-    options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, ticks: { ...chartDefaults.scales.y.ticks, callback: v => v + 's' } } } }
-  });
+  renderLineChart('deliveryChart', labels, deliveryData, { color: '#3FB88F', suffix: '%', min: 0, max: 100 });
+  renderLineChart('latencyChart', labels, latencyData, { color: '#5B7FBF', suffix: 's' });
 }
 
 async function loadRecent() {
