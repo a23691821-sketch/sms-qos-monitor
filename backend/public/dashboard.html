@@ -218,6 +218,21 @@
     padding: 20px;
     height: 260px;
   }
+  .chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .chart-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+  .chart-legend-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .table-card {
@@ -514,19 +529,38 @@
           <section>
             <div class="section-head"><h2>Taux de délivrance dans le temps</h2></div>
             <div class="chart-card" id="deliveryChart"></div>
+            <div class="chart-legend" id="deliveryChartLegend"></div>
           </section>
 
           <section>
             <div class="section-head"><h2>Latence moyenne (envoi → réception réelle) — en secondes</h2></div>
             <div class="chart-card" id="latencyChart"></div>
+            <div class="chart-legend" id="latencyChartLegend"></div>
           </section>
         </div>
+
+        <section>
+          <div class="section-head"><h2>Par opérateur</h2></div>
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Opérateur</th>
+                  <th>Envoyés</th>
+                  <th>Latence moy. / P95</th>
+                  <th>Délivrance</th>
+                </tr>
+              </thead>
+              <tbody id="operatorSummaryBody"></tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
       <div class="page" data-page="routes" hidden>
         <section>
           <div class="section-head"><h2>Par pays / opérateur</h2></div>
-          <div class="dim-tabs">
+          <div class="dim-tabs" id="dimTabsRoutes">
             <button class="dim-tab active" data-dim="country">Pays</button>
             <button class="dim-tab" data-dim="operator">Opérateur</button>
           </div>
@@ -566,11 +600,17 @@
       <div class="page" data-page="recent" hidden>
         <section>
           <div class="section-head"><h2>Tests récents</h2></div>
+          <div class="dim-tabs" id="recentFilterTabs">
+            <button class="dim-tab active" data-filter="all">Tous</button>
+            <button class="dim-tab" data-filter="scheduled">Automatiques</button>
+            <button class="dim-tab" data-filter="manual">Manuels</button>
+          </div>
           <div class="table-card scroll-card">
             <table class="compact-table">
               <thead>
                 <tr>
                   <th>Heure d'envoi</th>
+                  <th>Type</th>
                   <th>Route</th>
                   <th>Code</th>
                   <th>Sender envoyé</th>
@@ -824,6 +864,95 @@ let currentDimension = 'country';
 // externe : évite tout point de défaillance lié à un CDN (bloqué par un
 // réseau, un bloqueur de pub, etc.). `points` est un tableau de nombres ou
 // null (valeur manquante, simplement omise du tracé).
+// Palette stable (même opérateur = même couleur d'un rafraîchissement à
+// l'autre) plutôt qu'une couleur recalculée à chaque appel selon l'ordre
+// d'itération, ce qui ferait "sauter" les couleurs entre deux refresh.
+const OPERATOR_COLOR_PALETTE = ['#5B7FBF', '#E08A3C', '#9B59B6', '#3FB88F', '#D65C5C', '#4FB3BF', '#C9A227', '#7D8C6B'];
+const operatorColorMap = new Map();
+function colorForOperator(operator) {
+  if (!operatorColorMap.has(operator)) {
+    operatorColorMap.set(operator, OPERATOR_COLOR_PALETTE[operatorColorMap.size % OPERATOR_COLOR_PALETTE.length]);
+  }
+  return operatorColorMap.get(operator);
+}
+
+// Variante multi-séries de renderLineChart : une ligne par opérateur (couleur
+// stable via colorForOperator) plus une ligne totale en pointillé gris, avec
+// une légende cliquable pour isoler une série. Les axes/grille sont partagés
+// entre toutes les séries (mêmes labels temporels, un seul yMin/yMax global).
+function renderMultiLineChart(containerId, legendId, labels, series, opts) {
+  const { suffix = '', min = null, max = null } = opts || {};
+  const container = document.getElementById(containerId);
+  const width = container.clientWidth || 600;
+  const height = container.clientHeight || 220;
+  const padL = 34, padR = 8, padT = 10, padB = 22;
+  const plotW = Math.max(10, width - padL - padR);
+  const plotH = Math.max(10, height - padT - padB);
+
+  const allKnown = series.flatMap(s => s.points.filter(v => v != null));
+  if (!allKnown.length) {
+    container.innerHTML = `<div class="empty-state" style="height:100%;display:flex;align-items:center;justify-content:center;">Pas encore de données sur cette période.</div>`;
+    if (legendId) document.getElementById(legendId).innerHTML = '';
+    return;
+  }
+
+  const yMin = min != null ? min : Math.min(...allKnown);
+  const yMax = max != null ? max : Math.max(...allKnown);
+  const yRange = yMax - yMin || 1;
+
+  const n = labels.length;
+  const xFor = (i) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const yFor = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
+
+  const pathFor = (points) => {
+    let linePath = '';
+    let penDown = false;
+    points.forEach((v, i) => {
+      if (v == null) { penDown = false; return; }
+      const x = xFor(i), y = yFor(v);
+      linePath += (!penDown ? `M ${x} ${y} ` : `L ${x} ${y} `);
+      penDown = true;
+    });
+    return linePath;
+  };
+
+  const gridLines = [];
+  const yTicks = [];
+  for (let i = 0; i <= 4; i++) {
+    const v = yMin + (yRange * i) / 4;
+    const y = yFor(v);
+    gridLines.push(`<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="#26352233" stroke-width="1"/>`);
+    yTicks.push(`<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" font-family="IBM Plex Mono" fill="#5B6E69">${Math.round(v * 10) / 10}${suffix}</text>`);
+  }
+
+  const xTickEvery = Math.max(1, Math.ceil(n / 6));
+  const xTicks = labels
+    .map((lab, i) => (i % xTickEvery === 0 || i === n - 1) ? `<text x="${xFor(i)}" y="${height - 6}" text-anchor="middle" font-size="10" font-family="IBM Plex Mono" fill="#5B6E69">${lab}</text>` : '')
+    .join('');
+
+  const linesSvg = series.map(s => {
+    const dash = s.key === '__all__' ? 'stroke-dasharray="4 3"' : '';
+    const strokeWidth = s.key === '__all__' ? 1.5 : 2;
+    return `<path d="${pathFor(s.points)}" fill="none" stroke="${s.color}" stroke-width="${strokeWidth}" ${dash}/>`;
+  }).join('');
+
+  container.innerHTML = `
+    <svg width="100%" height="100%" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+      ${gridLines.join('')}
+      ${linesSvg}
+      ${yTicks.join('')}
+      ${xTicks}
+    </svg>`;
+
+  if (legendId) {
+    const legend = document.getElementById(legendId);
+    legend.innerHTML = series.map(s => `
+      <span class="chart-legend-item">
+        <span class="chart-legend-swatch" style="background:${s.color};${s.key === '__all__' ? 'opacity:.6;' : ''}"></span>${escapeAttr(s.label)}
+      </span>`).join('');
+  }
+}
+
 function renderLineChart(containerId, labels, points, opts) {
   const { color, suffix = '', min = null, max = null } = opts || {};
   const container = document.getElementById(containerId);
@@ -1034,12 +1163,21 @@ document.querySelectorAll('.nav-item').forEach(btn => {
   });
 });
 
-document.querySelectorAll('.dim-tab').forEach(btn => {
+document.querySelectorAll('#dimTabsRoutes .dim-tab').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.dim-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('#dimTabsRoutes .dim-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentDimension = btn.dataset.dim;
     loadByDimension(parseInt(document.getElementById('rangeSelect').value, 10));
+  });
+});
+
+document.querySelectorAll('#recentFilterTabs .dim-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#recentFilterTabs .dim-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentRecentFilter = btn.dataset.filter;
+    loadRecent();
   });
 });
 
@@ -1069,26 +1207,99 @@ async function getBucketMinutes(hours) {
 async function loadTimeseries(hours) {
   const bucketMinutes = await getBucketMinutes(hours);
   const res = await sessionFetch(`${API}/api/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutes}`);
-  const series = await res.json();
-  const labels = series.map(s => fmtTimeShort(s.time));
+  const rows = await res.json();
 
-  const deliveryData = series.map(s => s.deliveryRate == null ? null : Math.round(s.deliveryRate * 1000) / 10);
-  const latencyData = series.map(s => s.avgLatencyMs == null ? null : Math.round(s.avgLatencyMs) / 1000);
+  // Le backend renvoie une ligne par (bucket temporel, opérateur) — "__all__"
+  // cumule tous les opérateurs. On pivote ici : un axe des temps commun
+  // (labels), une série par opérateur alignée dessus (null si ce bucket n'a
+  // aucune donnée pour cet opérateur, plutôt que de fausser la moyenne).
+  const times = [...new Set(rows.map(r => r.time))].sort();
+  const labels = times.map(t => fmtTimeShort(t));
 
-  renderLineChart('deliveryChart', labels, deliveryData, { color: '#3FB88F', suffix: '%', min: 0, max: 100 });
-  renderLineChart('latencyChart', labels, latencyData, { color: '#5B7FBF', suffix: 's', min: 0 });
+  const operators = [...new Set(rows.map(r => r.operator))]
+    .filter(op => op !== '__all__')
+    .sort();
+  const orderedKeys = ['__all__', ...operators];
+
+  const byKeyAndTime = new Map();
+  for (const r of rows) byKeyAndTime.set(`${r.operator}|${r.time}`, r);
+
+  const buildSeries = (metric, colorFor) => orderedKeys.map(key => ({
+    key,
+    label: key === '__all__' ? 'Total (tous opérateurs)' : key,
+    color: key === '__all__' ? '#8A9691' : colorFor(key),
+    points: times.map(t => {
+      const row = byKeyAndTime.get(`${key}|${t}`);
+      if (!row) return null;
+      const v = row[metric];
+      return v == null ? null : v;
+    }),
+  }));
+
+  const deliverySeries = buildSeries('deliveryRate', colorForOperator).map(s => ({
+    ...s,
+    points: s.points.map(v => v == null ? null : Math.round(v * 1000) / 10),
+  }));
+  const latencySeries = buildSeries('avgLatencyMs', colorForOperator).map(s => ({
+    ...s,
+    points: s.points.map(v => v == null ? null : Math.round(v) / 1000),
+  }));
+
+  renderMultiLineChart('deliveryChart', 'deliveryChartLegend', labels, deliverySeries, { suffix: '%', min: 0, max: 100 });
+  renderMultiLineChart('latencyChart', 'latencyChartLegend', labels, latencySeries, { suffix: 's', min: 0 });
+}
+
+// Réutilise /stats/by-dimension?dimension=operator (déjà utilisé par l'onglet
+// "Par pays / opérateur" de la page Routes) pour donner un résumé agrégé par
+// opérateur directement sur la Vue d'ensemble, sans naviguer ailleurs.
+async function loadOperatorSummary(hours) {
+  const res = await sessionFetch(`${API}/api/stats/by-dimension?dimension=operator&sinceHours=${hours}`);
+  const data = await res.json();
+  const body = document.getElementById('operatorSummaryBody');
+  if (!data.groups.length) {
+    body.innerHTML = `<tr><td colspan="4" class="empty-state">Pas encore de données.</td></tr>`;
+    return;
+  }
+  body.innerHTML = data.groups.map(g => {
+    const pct = g.deliveryRate;
+    const pctPx = pct == null ? 0 : Math.round(pct * 100);
+    return `<tr>
+      <td class="route-name">${escapeAttr(g.operator)}</td>
+      <td class="mono">${g.total || 0}</td>
+      <td class="mono">${fmtMs(g.avgLatencyMs)} / ${fmtMs(g.p95LatencyMs)}</td>
+      <td>
+        <div class="bar-wrap">
+          <div class="bar-track"><div class="bar-fill" style="width:${pctPx}%; background:${pctColor(pct)}"></div></div>
+          <div class="bar-pct mono">${fmtPct(pct)}</div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// 'all' | 'scheduled' | 'manual' — permet d'isoler les tests automatiques du
+// cycle planifié des tests lancés à la main depuis "Test manuel", qui
+// partagent la même table et donc la même vue "Tests récents" par défaut.
+let currentRecentFilter = 'all';
+
+function recentTypeLabel(triggerType) {
+  return triggerType === 'manual'
+    ? `<span class="pill pending" title="Test manuel">Manuel</span>`
+    : `<span class="pill delivered" title="Test automatique planifié">Auto</span>`;
 }
 
 async function loadRecent() {
-  const res = await sessionFetch(`${API}/api/stats/recent?limit=40`);
+  const qs = currentRecentFilter === 'all' ? '' : `&triggerType=${currentRecentFilter}`;
+  const res = await sessionFetch(`${API}/api/stats/recent?limit=40${qs}`);
   const rows = await res.json();
   const body = document.getElementById('recentBody');
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="8" class="empty-state">Pas encore de test envoyé.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" class="empty-state">Pas encore de test envoyé.</td></tr>`;
     return;
   }
   body.innerHTML = rows.map(r => `<tr>
     <td class="mono">${fmtTime(r.sent_at)}</td>
+    <td>${recentTypeLabel(r.trigger_type)}</td>
     <td class="truncate-sm" title="${escapeAttr(r.route_name)}">${r.route_name}</td>
     <td><code class="qcode mono">${r.code}</code></td>
     <td class="truncate-sm">${escapeAttr(r.sender_id || '—')}</td>
@@ -1743,7 +1954,7 @@ function renderManualResult(test) {
 
 async function refreshAll() {
   const hours = parseInt(document.getElementById('rangeSelect').value, 10);
-  await Promise.all([loadOverview(hours), loadTimeseries(hours), loadRecent(), loadAlerts(), loadByDimension(hours)]);
+  await Promise.all([loadOverview(hours), loadTimeseries(hours), loadRecent(), loadAlerts(), loadByDimension(hours), loadOperatorSummary(hours)]);
   document.getElementById('exportBtn').href = `${API}/api/export/csv?sinceHours=${hours}`;
   document.getElementById('lastUpdated').textContent = 'mis à jour ' + new Date().toLocaleTimeString('fr-FR');
 }

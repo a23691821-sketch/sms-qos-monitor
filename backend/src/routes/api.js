@@ -438,6 +438,9 @@ router.get("/stats/interval", (req, res) => {
   res.json({ intervalMinutes: row.intervalMinutes || 15 });
 });
 
+// Chaque point porte aussi l'opérateur de sa route (rows séparées par
+// opérateur, PAS agrégées), pour que le dashboard puisse tracer une courbe
+// par opérateur en plus de la courbe globale, sans appel supplémentaire.
 router.get("/stats/timeseries", (req, res) => {
   const sinceHours = parseInt(req.query.sinceHours || "24", 10);
   const bucketMinutes = parseInt(req.query.bucketMinutes || "60", 10);
@@ -445,27 +448,41 @@ router.get("/stats/timeseries", (req, res) => {
 
   // Bucketing simple fait en JS pour rester lisible et indépendant du moteur SQL
   const rows = db
-    .prepare(`SELECT sent_at, final_status, latency_ms FROM test_messages WHERE sent_at >= ? ORDER BY sent_at`)
+    .prepare(`
+      SELECT t.sent_at, t.final_status, t.latency_ms, r.operator
+      FROM test_messages t JOIN routes r ON r.id = t.route_id
+      WHERE t.sent_at >= ?
+      ORDER BY t.sent_at
+    `)
     .all(since);
 
+  // Une entrée par (bucket temporel, opérateur) : la clé "__all__" cumule
+  // tous les opérateurs pour garder la courbe globale historique.
   const buckets = new Map();
-  for (const row of rows) {
-    const t = new Date(row.sent_at).getTime();
-    const bucketStart = Math.floor(t / (bucketMinutes * 60000)) * (bucketMinutes * 60000);
-    const key = new Date(bucketStart).toISOString();
-    if (!buckets.has(key)) buckets.set(key, { time: key, total: 0, delivered: 0, latencies: [] });
+  const touchBucket = (bucketIso, operator, row) => {
+    const key = `${bucketIso}|${operator}`;
+    if (!buckets.has(key)) buckets.set(key, { time: bucketIso, operator, total: 0, delivered: 0, latencies: [] });
     const b = buckets.get(key);
     b.total += 1;
     if (row.final_status === "delivered") {
       b.delivered += 1;
       if (row.latency_ms != null) b.latencies.push(row.latency_ms);
     }
+  };
+
+  for (const row of rows) {
+    const t = new Date(row.sent_at).getTime();
+    const bucketStart = Math.floor(t / (bucketMinutes * 60000)) * (bucketMinutes * 60000);
+    const bucketIso = new Date(bucketStart).toISOString();
+    touchBucket(bucketIso, "__all__", row);
+    touchBucket(bucketIso, row.operator || "(non renseigné)", row);
   }
 
   const series = [...buckets.values()]
     .sort((a, b) => a.time.localeCompare(b.time))
     .map((b) => ({
       time: b.time,
+      operator: b.operator,
       total: b.total,
       delivered: b.delivered,
       deliveryRate: b.total ? b.delivered / b.total : null,
@@ -475,15 +492,29 @@ router.get("/stats/timeseries", (req, res) => {
   res.json(series);
 });
 
+// triggerType (optionnel) : "scheduled" ou "manual", pour isoler les tests
+// automatiques du cycle planifié des tests manuels lancés depuis "Test manuel"
+// dans la vue "Tests récents" (par défaut, sans filtre, on garde les deux).
 router.get("/stats/recent", (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || "50", 10), 200);
-  const rows = db
-    .prepare(`
-      SELECT t.*, r.name as route_name, r.provider_id, r.country, r.operator
-      FROM test_messages t JOIN routes r ON r.id = t.route_id
-      ORDER BY t.sent_at DESC LIMIT ?
-    `)
-    .all(limit);
+  const triggerType = ["scheduled", "manual"].includes(req.query.triggerType) ? req.query.triggerType : null;
+
+  const rows = triggerType
+    ? db
+        .prepare(`
+          SELECT t.*, r.name as route_name, r.provider_id, r.country, r.operator
+          FROM test_messages t JOIN routes r ON r.id = t.route_id
+          WHERE t.trigger_type = ?
+          ORDER BY t.sent_at DESC LIMIT ?
+        `)
+        .all(triggerType, limit)
+    : db
+        .prepare(`
+          SELECT t.*, r.name as route_name, r.provider_id, r.country, r.operator
+          FROM test_messages t JOIN routes r ON r.id = t.route_id
+          ORDER BY t.sent_at DESC LIMIT ?
+        `)
+        .all(limit);
   res.json(rows);
 });
 
