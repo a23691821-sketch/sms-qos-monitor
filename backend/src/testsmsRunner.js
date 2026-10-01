@@ -29,11 +29,18 @@ async function runTestSmsTest(params) {
   }
 
   const batchId = crypto.randomBytes(8).toString("hex");
+  // created_at explicitement en ISO (comme sent_at/dlr_at ailleurs dans le
+  // projet) plutôt que de laisser SQLite poser son propre CURRENT_TIMESTAMP
+  // ("YYYY-MM-DD HH:MM:SS", avec un espace) : comparé en TEXT à un cutoff ISO
+  // ("...T...Z") dans scheduler.js, l'espace est lexicographiquement "avant"
+  // le 'T', donc created_at paraît TOUJOURS plus ancien que n'importe quel
+  // cutoff — ce qui marquait les tests "timeout" presque immédiatement.
+  const createdAt = new Date().toISOString();
   const insert = db.prepare(`
     INSERT INTO testsms_tests
       (schedule_id, trigger_type, mccmnc, mccmnc_original, country, network,
-       outbound_provider_id, sender_id, create_test_status, final_status, batch_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', ?)
+       outbound_provider_id, sender_id, create_test_status, final_status, batch_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', ?, ?)
   `);
 
   const testIds = networks.map((n) => {
@@ -46,7 +53,8 @@ async function runTestSmsTest(params) {
       n.network || null,
       outboundProviderId,
       senderId && senderId.trim() ? senderId.trim() : null,
-      batchId
+      batchId,
+      createdAt
     );
     return lastInsertRowid;
   });
