@@ -60,18 +60,49 @@ async function sendViaGenericHttp(cfg, vars) {
 
   // Chemin (dot notation) vers l'ID de message et le statut dans la réponse JSON,
   // défini dans providers.json (ex: "messageIdPath": "data.id")
-  const messageId = cfg.messageIdPath ? getPath(response.data, cfg.messageIdPath) : null;
+  let messageId = cfg.messageIdPath ? getPath(response.data, cfg.messageIdPath) : null;
+
+  // Repli générique : certains fournisseurs (ex: Emettance) imbriquent l'id
+  // sous une clé IMPRÉVISIBLE à l'avance — chez Emettance c'est le numéro de
+  // destination lui-même : { data: { "<numéro>": [{ id_state, ... }] } }. Un
+  // messageIdPath fixe ("data.33759272672.0.id_state") ne fonctionne alors que
+  // pour CE numéro précis : dès qu'une autre route (autre numéro) envoie, le
+  // chemin ne correspond plus et messageId reste vide, cassant l'appariement
+  // des DLR pour toutes les routes sauf celle d'origine. On ne devine pas la
+  // clé : on prend le premier tableau trouvé sous "data" et on concatène les
+  // id_state de ses entrées (plusieurs entrées = SMS multi-parties), au format
+  // "id1.id2..." attendu par le matching des DLR (voir webhook.js, qui fait
+  // un LIKE "idState.%" pour reconnaître une partie d'un envoi multi-parties).
+  if (messageId == null) {
+    messageId = extractNestedMessageId(response.data);
+  }
 
   return {
     ok: true,
     httpStatus: response.status,
-    providerMessageId: messageId,
+    // Toujours une chaîne : comparée telle quelle à provider_message_id (colonne
+    // TEXT) lors du matching des DLR — un nombre JS stocké tel quel peut être
+    // écrit en SQLite avec une affinité différente de la chaîne envoyée par le
+    // DLR ("564900404" vs 564900404.0) et ne plus jamais correspondre à l'égalité.
+    providerMessageId: messageId == null ? null : String(messageId),
     raw: response.data,
   };
 }
 
 function getPath(obj, dotPath) {
   return dotPath.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+function extractNestedMessageId(data) {
+  const inner = data && data.data;
+  if (!inner || typeof inner !== "object") return null;
+  for (const val of Object.values(inner)) {
+    if (Array.isArray(val) && val.length) {
+      const ids = val.map((e) => e && e.id_state).filter((v) => v != null);
+      if (ids.length) return ids.join(".");
+    }
+  }
+  return null;
 }
 
 // Certains fournisseurs (ex: envoi programmé) demandent la date/heure d'envoi
