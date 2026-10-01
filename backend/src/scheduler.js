@@ -105,6 +105,20 @@ function tickTimeouts() {
   `).run(cutoff);
 }
 
+// Résout la liste des réseaux à tester pour un schedule donné. En mode
+// normal (is_country = 0), c'est juste le réseau figé à la création. En mode
+// "pays entier" (is_country = 1), on NE fige jamais la liste : on interroge
+// TestSMS à chaque exécution pour repartir des opérateurs natifs actuellement
+// disponibles pour ce pays (ils peuvent changer dans le temps).
+async function resolveScheduleNetworks(schedule) {
+  if (!schedule.is_country) {
+    return [{ mccmnc: schedule.mccmnc, mccmncOriginal: schedule.mccmnc_original, country: schedule.country, network: schedule.network }];
+  }
+  const allNetworks = await testsms.getNetworks();
+  const countryNetworks = allNetworks.filter((n) => n.isoAlpha2 === schedule.country_iso || n.country === schedule.country);
+  return countryNetworks.map((n) => ({ mccmnc: n.mccmnc, mccmncOriginal: null, country: n.country, network: n.network }));
+}
+
 // Déclenche chaque schedule TestSMS actif selon son propre interval_minutes,
 // même logique que tickRoutes() ci-dessus. Ignore silencieusement si les
 // credentials TestSMS ne sont pas configurés (évite de spammer les logs sur
@@ -120,16 +134,21 @@ function tickTestSmsSchedules() {
     const intervalMs = schedule.interval_minutes * 60 * 1000;
     if (now - last >= intervalMs) {
       lastRunByTestSmsSchedule.set(schedule.id, now);
-      runTestSmsTest({
-        mccmnc: schedule.mccmnc,
-        mccmncOriginal: schedule.mccmnc_original,
-        country: schedule.country,
-        network: schedule.network,
-        outboundProviderId: schedule.outbound_provider_id,
-        senderId: schedule.sender_id,
-        scheduleId: schedule.id,
-        triggerType: "scheduled",
-      }).catch((e) => console.error(`[scheduler] testsms schedule ${schedule.id} erreur:`, e));
+      resolveScheduleNetworks(schedule)
+        .then((networks) => {
+          if (!networks.length) {
+            console.warn(`[scheduler] testsms schedule ${schedule.id} (${schedule.name}) : aucun réseau résolu, test ignoré`);
+            return;
+          }
+          return runTestSmsTest({
+            networks,
+            outboundProviderId: schedule.outbound_provider_id,
+            senderId: schedule.sender_id,
+            scheduleId: schedule.id,
+            triggerType: "scheduled",
+          });
+        })
+        .catch((e) => console.error(`[scheduler] testsms schedule ${schedule.id} erreur:`, e));
     }
   }
 }

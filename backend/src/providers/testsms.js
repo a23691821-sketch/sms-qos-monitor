@@ -87,41 +87,58 @@ async function authedRequest(config, retryOn401 = true) {
 // proposer TOUS les pays couverts par TestSMS "à la demande", sans liste
 // figée dans notre code. Un petit cache court (60s) évite juste de spammer
 // l'API si le menu est ouvert/fermé plusieurs fois de suite.
+//
+// `nativeOnly` (true par défaut) : exclut les entrées "numéro porté"
+// (mccmncOriginal renseigné) — demande explicite du client, qui ne veut que
+// les numéros natifs et trouvait la liste complète inutilement longue (ces
+// entrées doublent quasi chaque opérateur par une variante "ported").
 let networksCache = null; // { data, fetchedAt }
 const NETWORKS_CACHE_MS = 60 * 1000;
 
-async function getNetworks({ forceRefresh = false } = {}) {
+async function getNetworks({ forceRefresh = false, nativeOnly = true } = {}) {
   if (!forceRefresh && networksCache && Date.now() - networksCache.fetchedAt < NETWORKS_CACHE_MS) {
-    return networksCache.data;
+    return nativeOnly ? networksCache.data.filter((n) => !n.mccmncOriginal) : networksCache.data;
   }
   const response = await authedRequest({ method: "GET", url: "/v1/mccmnc" });
   networksCache = { data: response.data, fetchedAt: Date.now() };
-  return networksCache.data;
+  return nativeOnly ? networksCache.data.filter((n) => !n.mccmncOriginal) : networksCache.data;
 }
 
-// POST /v1/createTest — demande un numéro de test pour un réseau donné.
+// POST /v1/createTest — demande un ou plusieurs numéros de test en un seul
+// appel. `networks` : tableau de { mccmnc, mccmncOriginal?, numberSources? }
+// (1 entrée = test normal, plusieurs = "pays entier", voir testsmsRunner.js).
 // `callbackUrl` : notre endpoint public qui recevra le résultat dès que
-// TestSMS l'aura (voir routes/webhook.js). numberSources par défaut laissé à
-// TestSMS (shared_then_dedicated côté leur doc).
-async function createTest({ mccmnc, mccmncOriginal, numberSources, callbackUrl }) {
-  const network = { mccmnc };
-  if (mccmncOriginal) network.mccmncOriginal = mccmncOriginal;
-  if (numberSources) network.numberSources = numberSources;
+// TestSMS l'aura (voir routes/webhook.js).
+//
+// La réponse de TestSMS ne renvoie PAS le mccmnc dans chaque entrée
+// phoneNumbers — on suppose donc (comportement standard d'une API batch)
+// que l'ordre de phoneNumbers correspond exactement à l'ordre de `networks`
+// envoyé, et on recolle nous-mêmes chaque entrée à son réseau d'origine.
+async function createTest(networks, { numberSources, callbackUrl }) {
+  const payload = networks.map((n) => {
+    const entry = { mccmnc: n.mccmnc };
+    if (n.mccmncOriginal) entry.mccmncOriginal = n.mccmncOriginal;
+    if (numberSources) entry.numberSources = numberSources;
+    return entry;
+  });
 
   const response = await authedRequest({
     method: "POST",
     url: "/v1/createTest",
     headers: { "Content-Type": "application/json" },
-    data: { callbackUrl, networks: [network] },
+    data: { callbackUrl, networks: payload },
   });
 
-  // Réponse: [{ phoneNumbers: [{ id, messageId, msisdn, price, currency, billingStatus, creditType, chargedAt }] }]
+  // Réponse: [{ phoneNumbers: [{ id, messageId, msisdn, price, currency, billingStatus, creditType, chargedAt }, ...] }]
   const entry = Array.isArray(response.data) ? response.data[0] : null;
-  const phoneEntry = entry && Array.isArray(entry.phoneNumbers) ? entry.phoneNumbers[0] : null;
-  if (!phoneEntry) {
-    throw new Error(`Réponse createTest inattendue: ${JSON.stringify(response.data)}`);
+  const phoneNumbers = entry && Array.isArray(entry.phoneNumbers) ? entry.phoneNumbers : null;
+  if (!phoneNumbers || phoneNumbers.length !== networks.length) {
+    throw new Error(`Réponse createTest inattendue (taille différente de la demande): ${JSON.stringify(response.data)}`);
   }
-  return { raw: response.data, ...phoneEntry };
+  return {
+    raw: response.data,
+    results: phoneNumbers.map((p, i) => ({ ...networks[i], ...p })),
+  };
 }
 
 // GET /v1/smsTest/:id — résultat courant d'un test (utilisé en polling de

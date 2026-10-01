@@ -63,27 +63,43 @@ router.get("/schedules", (req, res) => {
   res.json(db.prepare(`SELECT * FROM testsms_schedules ORDER BY id DESC`).all());
 });
 
+// Deux modes : un réseau précis (mccmnc requis) OU "pays entier" (isCountry +
+// countryIso requis, mccmnc/network ignorés — la liste des opérateurs natifs
+// est re-résolue à chaque exécution, voir scheduler.js::resolveScheduleNetworks).
 router.post("/schedules", (req, res) => {
-  const { name, mccmnc, mccmncOriginal, country, network, outboundProviderId, senderId, intervalMinutes } =
-    req.body || {};
-  if (!name || !mccmnc || !outboundProviderId) {
-    return res.status(400).json({ error: "name, mccmnc, outboundProviderId requis" });
+  const {
+    name, isCountry, countryIso, mccmnc, mccmncOriginal, country, network,
+    outboundProviderId, senderId, intervalMinutes,
+  } = req.body || {};
+
+  if (!name || !outboundProviderId) {
+    return res.status(400).json({ error: "name et outboundProviderId requis" });
   }
+  if (isCountry && !countryIso) {
+    return res.status(400).json({ error: "countryIso requis en mode pays entier" });
+  }
+  if (!isCountry && !mccmnc) {
+    return res.status(400).json({ error: "mccmnc requis (ou isCountry + countryIso pour un pays entier)" });
+  }
+
   const { lastInsertRowid } = db
     .prepare(`
       INSERT INTO testsms_schedules
-        (name, mccmnc, mccmnc_original, country, network, outbound_provider_id, sender_id, interval_minutes, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+        (name, mccmnc, mccmnc_original, country, network, outbound_provider_id, sender_id,
+         interval_minutes, active, is_country, country_iso)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `)
     .run(
       name,
-      mccmnc,
-      mccmncOriginal || null,
+      isCountry ? countryIso : mccmnc, // satisfait la contrainte NOT NULL ; sans signification propre en mode pays
+      isCountry ? null : (mccmncOriginal || null),
       country || null,
-      network || null,
+      isCountry ? null : (network || null),
       outboundProviderId,
       senderId && senderId.trim() ? senderId.trim() : null,
-      intervalMinutes || 60
+      intervalMinutes || 60,
+      isCountry ? 1 : 0,
+      isCountry ? countryIso : null
     );
   res.json({ id: lastInsertRowid });
 });
@@ -111,28 +127,31 @@ router.delete("/schedules/:id", (req, res) => {
 
 // ---------- Tests (manuel immédiat + historique) ----------
 
+// `networks` : tableau de { mccmnc, mccmncOriginal?, country, network }, un
+// élément = test normal, plusieurs = "pays entier" (le dashboard envoie déjà
+// tous les opérateurs natifs du pays choisi, depuis sa liste en cache).
 router.post("/tests", async (req, res) => {
   if (isPaused()) {
     return res.status(409).json({ error: "Envoi de SMS en pause — reprends l'envoi depuis la sidebar pour lancer un test." });
   }
-  const { mccmnc, mccmncOriginal, country, network, outboundProviderId, senderId } = req.body || {};
-  if (!mccmnc || !outboundProviderId) {
-    return res.status(400).json({ error: "mccmnc et outboundProviderId requis" });
+  const { networks, outboundProviderId, senderId } = req.body || {};
+  if (!Array.isArray(networks) || !networks.length || !outboundProviderId) {
+    return res.status(400).json({ error: "networks (tableau non vide) et outboundProviderId requis" });
   }
   try {
-    const localId = await runTestSmsTest({
-      mccmnc,
-      mccmncOriginal,
-      country,
-      network,
-      outboundProviderId,
-      senderId,
-      triggerType: "manual",
-    });
-    res.json({ ok: true, testId: localId });
+    const { batchId, testIds } = await runTestSmsTest({ networks, outboundProviderId, senderId, triggerType: "manual" });
+    res.json({ ok: true, batchId, testIds });
   } catch (err) {
     res.status(502).json({ error: String(err.response?.data?.message || err.message || err) });
   }
+});
+
+// Vue groupée d'un lot (ex: test "pays entier" = plusieurs lignes créées en
+// une seule requête /tests) — utilisée par le dashboard pour suivre en direct
+// toutes les lignes d'un même lancement sans connaître leurs ids individuels.
+router.get("/tests/batch/:batchId", (req, res) => {
+  const rows = db.prepare(`SELECT * FROM testsms_tests WHERE batch_id = ? ORDER BY id`).all(req.params.batchId);
+  res.json(rows);
 });
 
 // since/until (ISO 8601, optionnels) : mêmes filtres rapides "Dernière heure /

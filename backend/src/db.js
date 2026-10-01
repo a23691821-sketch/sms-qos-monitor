@@ -187,4 +187,28 @@ if (!devicesColumns.includes("last_heartbeat_at")) {
   db.exec("ALTER TABLE devices ADD COLUMN last_heartbeat_at TEXT");
 }
 
+// "Pays entier" : une planification/un test peut désormais cibler TOUS les
+// opérateurs natifs d'un pays TestSMS en une fois, plutôt qu'un seul
+// mccmnc choisi à l'avance. Pour une planification en mode pays, on ne
+// figure jamais la liste des opérateurs au moment de la création : à chaque
+// exécution, on interroge à nouveau TestSMS pour repartir de la liste à jour
+// (voir scheduler.js) — country_iso est donc tout ce qu'il faut stocker,
+// mccmnc reste rempli (= country_iso) juste pour satisfaire la contrainte
+// NOT NULL existante, sans signification propre en mode pays.
+const testsmsSchedulesColumns = db.prepare("PRAGMA table_info(testsms_schedules)").all().map((c) => c.name);
+if (!testsmsSchedulesColumns.includes("is_country")) {
+  db.exec("ALTER TABLE testsms_schedules ADD COLUMN is_country INTEGER NOT NULL DEFAULT 0");
+}
+if (!testsmsSchedulesColumns.includes("country_iso")) {
+  db.exec("ALTER TABLE testsms_schedules ADD COLUMN country_iso TEXT");
+}
+
+// Un test "pays entier" crée plusieurs lignes testsms_tests d'un coup (une
+// par opérateur natif) : batch_id (même valeur pour toutes) permet de les
+// regrouper à l'affichage (résultat du test ponctuel, historique).
+const testsmsTestsColumns = db.prepare("PRAGMA table_info(testsms_tests)").all().map((c) => c.name);
+if (!testsmsTestsColumns.includes("batch_id")) {
+  db.exec("ALTER TABLE testsms_tests ADD COLUMN batch_id TEXT");
+}
+
 module.exports = db;
