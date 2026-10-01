@@ -57,6 +57,7 @@ async function runTestSmsTest(params) {
   try {
     created = await testsms.createTest(networks, { callbackUrl: CALLBACK_URL });
   } catch (err) {
+    console.error("[testsms] createTest erreur:", err.response?.status, JSON.stringify(err.response?.data) || err.message);
     const errJson = JSON.stringify({ error: err.response?.data || String(err) });
     for (const id of testIds) {
       db.prepare(`

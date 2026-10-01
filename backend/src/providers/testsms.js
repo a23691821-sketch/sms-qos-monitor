@@ -129,8 +129,11 @@ async function createTest(networks, { numberSources, callbackUrl }) {
     data: { callbackUrl, networks: payload },
   });
 
-  // Réponse: [{ phoneNumbers: [{ id, messageId, msisdn, price, currency, billingStatus, creditType, chargedAt }, ...] }]
-  const entry = Array.isArray(response.data) ? response.data[0] : null;
+  // Réponse observée en pratique : { phoneNumbers: [{ id, messageId, msisdn, ... }, ...] }
+  // — un objet direct, PAS le tableau [{ phoneNumbers: [...] }] montré dans la
+  // doc Swagger. On gère les deux formes par robustesse (au cas où l'API varie
+  // selon le nombre de réseaux demandés, jamais observé mais pas exclu).
+  const entry = Array.isArray(response.data) ? response.data[0] : response.data;
   const phoneNumbers = entry && Array.isArray(entry.phoneNumbers) ? entry.phoneNumbers : null;
   if (!phoneNumbers || phoneNumbers.length !== networks.length) {
     throw new Error(`Réponse createTest inattendue (taille différente de la demande): ${JSON.stringify(response.data)}`);
