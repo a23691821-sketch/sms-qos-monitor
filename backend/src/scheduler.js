@@ -8,10 +8,22 @@ const testsms = require("./providers/testsms");
 
 const TIMEOUT_MINUTES = parseInt(process.env.TIMEOUT_MINUTES || "15", 10);
 
-// Suivi en mémoire de la dernière exécution par route (évite une table de plus)
-const lastRunByRoute = new Map();
-// Idem pour les schedules TestSMS (voir tickTestSmsSchedules ci-dessous)
-const lastRunByTestSmsSchedule = new Map();
+// La dernière exécution de chaque route/schedule est déduite du dernier test
+// déjà enregistré en base (MAX(sent_at)/MAX(created_at)), PAS d'un suivi en
+// mémoire : un suivi en mémoire repart à zéro à chaque redémarrage du
+// service, et le cron (tickRoutes/tickTestSmsSchedules) pense alors qu'aucun
+// test n'a jamais été envoyé — il relance donc immédiatement TOUTES les
+// routes actives au tick suivant, même si l'intervalle réel n'est pas
+// écoulé. Ce bug a provoqué une rafale de tests en double lors des multiples
+// redémarrages du service pendant un déploiement (observé le 01/10).
+function lastRouteRunAt(routeId) {
+  const row = db.prepare(`SELECT MAX(sent_at) as last FROM test_messages WHERE route_id = ?`).get(routeId);
+  return row && row.last ? new Date(row.last).getTime() : 0;
+}
+function lastTestSmsScheduleRunAt(scheduleId) {
+  const row = db.prepare(`SELECT MAX(created_at) as last FROM testsms_tests WHERE schedule_id = ?`).get(scheduleId);
+  return row && row.last ? new Date(row.last).getTime() : 0;
+}
 
 // Bouton d'urgence "mettre en pause l'envoi de SMS" (sidebar du dashboard) :
 // persisté en base (table settings) pour survivre à un redémarrage du
@@ -87,10 +99,9 @@ function tickRoutes() {
   const now = Date.now();
 
   for (const route of routes) {
-    const last = lastRunByRoute.get(route.id) || 0;
+    const last = lastRouteRunAt(route.id);
     const intervalMs = route.interval_minutes * 60 * 1000;
     if (now - last >= intervalMs) {
-      lastRunByRoute.set(route.id, now);
       runTestForRoute(route).catch((e) => console.error(`[scheduler] route ${route.id} erreur:`, e));
     }
   }
@@ -130,10 +141,9 @@ function tickTestSmsSchedules() {
   const now = Date.now();
 
   for (const schedule of schedules) {
-    const last = lastRunByTestSmsSchedule.get(schedule.id) || 0;
+    const last = lastTestSmsScheduleRunAt(schedule.id);
     const intervalMs = schedule.interval_minutes * 60 * 1000;
     if (now - last >= intervalMs) {
-      lastRunByTestSmsSchedule.set(schedule.id, now);
       resolveScheduleNetworks(schedule)
         .then((networks) => {
           if (!networks.length) {
