@@ -21,6 +21,14 @@ function aggregate(rows) {
   const latencies = delivered.map((r) => r.latency_ms).filter((v) => v != null);
   const dlrMismatch = rows.filter((r) => r.dlr_status === "delivered" && r.final_status !== "delivered").length;
 
+  // Latence fournisseur (envoi -> DLR) : volontairement PAS filtrée sur
+  // final_status === 'delivered' comme latencies ci-dessus, parce que le DLR
+  // peut arriver même quand le téléphone n'a jamais reçu le SMS (ou l'inverse)
+  // — c'est justement ce qui permet de distinguer un ralentissement "réseau
+  // opérateur" (DLR rapide, réception lente/absente) d'un ralentissement côté
+  // fournisseur (DLR lui-même lent à arriver).
+  const dlrLatencies = rows.map((r) => r.dlr_latency_ms).filter((v) => v != null);
+
   return {
     total: rows.length,
     delivered: delivered.length,
@@ -31,6 +39,8 @@ function aggregate(rows) {
     avgLatencyMs: latencies.length ? latencies.reduce((a, b) => a + b, 0) / latencies.length : null,
     p95LatencyMs: percentile(latencies, 95),
     p99LatencyMs: percentile(latencies, 99),
+    avgDlrLatencyMs: dlrLatencies.length ? dlrLatencies.reduce((a, b) => a + b, 0) / dlrLatencies.length : null,
+    p95DlrLatencyMs: percentile(dlrLatencies, 95),
     dlrMismatch,
   };
 }
@@ -461,7 +471,7 @@ router.get("/stats/timeseries", (req, res) => {
   // Bucketing simple fait en JS pour rester lisible et indépendant du moteur SQL
   const rows = db
     .prepare(`
-      SELECT t.sent_at, t.final_status, t.latency_ms, r.operator
+      SELECT t.sent_at, t.final_status, t.latency_ms, t.dlr_latency_ms, r.operator
       FROM test_messages t JOIN routes r ON r.id = t.route_id
       WHERE t.sent_at >= ?
       ORDER BY t.sent_at
@@ -473,13 +483,17 @@ router.get("/stats/timeseries", (req, res) => {
   const buckets = new Map();
   const touchBucket = (bucketIso, operator, row) => {
     const key = `${bucketIso}|${operator}`;
-    if (!buckets.has(key)) buckets.set(key, { time: bucketIso, operator, total: 0, delivered: 0, latencies: [] });
+    if (!buckets.has(key)) buckets.set(key, { time: bucketIso, operator, total: 0, delivered: 0, latencies: [], dlrLatencies: [] });
     const b = buckets.get(key);
     b.total += 1;
     if (row.final_status === "delivered") {
       b.delivered += 1;
       if (row.latency_ms != null) b.latencies.push(row.latency_ms);
     }
+    // Latence DLR comptée indépendamment du statut final (voir aggregate()
+    // dans ce même fichier pour le raisonnement détaillé) : le DLR fournisseur
+    // peut arriver même sans réception confirmée sur le téléphone.
+    if (row.dlr_latency_ms != null) b.dlrLatencies.push(row.dlr_latency_ms);
   };
 
   for (const row of rows) {
@@ -499,6 +513,7 @@ router.get("/stats/timeseries", (req, res) => {
       delivered: b.delivered,
       deliveryRate: b.total ? b.delivered / b.total : null,
       avgLatencyMs: b.latencies.length ? b.latencies.reduce((a, c) => a + c, 0) / b.latencies.length : null,
+      avgDlrLatencyMs: b.dlrLatencies.length ? b.dlrLatencies.reduce((a, c) => a + c, 0) / b.dlrLatencies.length : null,
     }));
 
   res.json(series);

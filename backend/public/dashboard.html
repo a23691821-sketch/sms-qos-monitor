@@ -540,6 +540,12 @@
             <div class="chart-card" id="latencyChart"></div>
             <div class="chart-legend" id="latencyChartLegend"></div>
           </section>
+
+          <section>
+            <div class="section-head"><h2>Latence fournisseur (envoi → DLR) — en secondes</h2></div>
+            <div class="chart-card" id="dlrLatencyChart"></div>
+            <div class="chart-legend" id="dlrLatencyChartLegend"></div>
+          </section>
         </div>
 
         <section>
@@ -550,7 +556,8 @@
                 <tr>
                   <th>Opérateur</th>
                   <th>Envoyés</th>
-                  <th>Latence moy. / P95</th>
+                  <th>Latence moy. / P95 (réception)</th>
+                  <th>Latence moy. / P95 (DLR fournisseur)</th>
                   <th>Délivrance</th>
                 </tr>
               </thead>
@@ -573,7 +580,8 @@
                 <tr>
                   <th id="dimHeader">Pays</th>
                   <th>Envoyés</th>
-                  <th>Latence moy. / P95</th>
+                  <th>Latence moy. / P95 (réception)</th>
+                  <th>Latence moy. / P95 (DLR fournisseur)</th>
                   <th>Délivrance</th>
                 </tr>
               </thead>
@@ -590,7 +598,8 @@
                 <tr>
                   <th>Route</th>
                   <th>Envoyés</th>
-                  <th>Latence moy. / P95</th>
+                  <th>Latence moy. / P95 (réception)</th>
+                  <th>Latence moy. / P95 (DLR fournisseur)</th>
                   <th>Délivrance</th>
                 </tr>
               </thead>
@@ -1059,8 +1068,9 @@ function renderKpis(t) {
   document.getElementById('kpiRow').innerHTML = [
     kpiCard('Tests envoyés', t.total ?? 0, '', t.testsPerHour != null ? `${t.testsPerHour.toFixed(1)} / h` : ''),
     kpiCard('Taux de délivrance', fmtPct(rate), rateCls),
-    kpiCard('Latence moyenne', fmtMs(t.avgLatencyMs)),
+    kpiCard('Latence moyenne', fmtMs(t.avgLatencyMs), '', 'Envoi → réception réelle'),
     kpiCard('Latence P95', fmtMs(t.p95LatencyMs), '', t.p99LatencyMs != null ? `P99: ${fmtMs(t.p99LatencyMs)}` : ''),
+    kpiCard('Latence DLR fournisseur', fmtMs(t.avgDlrLatencyMs), '', t.p95DlrLatencyMs != null ? `P95: ${fmtMs(t.p95DlrLatencyMs)}` : 'Envoi → accusé du fournisseur'),
     kpiCard('Timeouts', t.timeout ?? 0, (t.timeout > 0 ? 'warn' : '')),
     kpiCard('Échecs envoi', t.failed ?? 0, (t.failed > 0 ? 'bad' : '')),
     kpiCard('DLR incohérents', t.dlrMismatch ?? 0, (t.dlrMismatch > 0 ? 'warn' : '')),
@@ -1070,7 +1080,7 @@ function renderKpis(t) {
 function renderRoutesTable(routes) {
   const body = document.getElementById('routesBody');
   if (!routes.length) {
-    body.innerHTML = `<tr><td colspan="4" class="empty-state">Aucune route configurée. Crée-en une via l'API /api/routes.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">Aucune route configurée. Crée-en une via l'API /api/routes.</td></tr>`;
     return;
   }
   body.innerHTML = routes.map(r => {
@@ -1085,6 +1095,7 @@ function renderRoutesTable(routes) {
       </td>
       <td class="mono">${r.total || 0}</td>
       <td class="mono">${fmtMs(r.avgLatencyMs)} / ${fmtMs(r.p95LatencyMs)}</td>
+      <td class="mono">${fmtMs(r.avgDlrLatencyMs)} / ${fmtMs(r.p95DlrLatencyMs)}</td>
       <td>
         <div class="bar-wrap">
           <div class="bar-track"><div class="bar-fill" style="width:${pctPx}%; background:${pctColor(pct)}"></div></div>
@@ -1162,7 +1173,7 @@ async function loadByDimension(hours) {
   document.getElementById('dimHeader').textContent = currentDimension === 'country' ? 'Pays' : 'Opérateur';
   const body = document.getElementById('dimBody');
   if (!data.groups.length) {
-    body.innerHTML = `<tr><td colspan="4" class="empty-state">Pas encore de données.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">Pas encore de données.</td></tr>`;
     return;
   }
   body.innerHTML = data.groups.map(g => {
@@ -1172,6 +1183,7 @@ async function loadByDimension(hours) {
       <td class="route-name">${g[currentDimension]}</td>
       <td class="mono">${g.total}</td>
       <td class="mono">${fmtMs(g.avgLatencyMs)} / ${fmtMs(g.p95LatencyMs)}</td>
+      <td class="mono">${fmtMs(g.avgDlrLatencyMs)} / ${fmtMs(g.p95DlrLatencyMs)}</td>
       <td>
         <div class="bar-wrap">
           <div class="bar-track"><div class="bar-fill" style="width:${pctPx}%; background:${pctColor(pct)}"></div></div>
@@ -1311,9 +1323,14 @@ async function loadTimeseries(hours) {
     ...s,
     points: s.points.map(v => v == null ? null : Math.round(v) / 1000),
   }));
+  const dlrLatencySeries = buildSeries('avgDlrLatencyMs', colorForOperator).map(s => ({
+    ...s,
+    points: s.points.map(v => v == null ? null : Math.round(v) / 1000),
+  }));
 
   renderMultiLineChart('deliveryChart', 'deliveryChartLegend', labels, deliverySeries, { suffix: '%', min: 0, max: 100 });
   renderMultiLineChart('latencyChart', 'latencyChartLegend', labels, latencySeries, { suffix: 's', min: 0 });
+  renderMultiLineChart('dlrLatencyChart', 'dlrLatencyChartLegend', labels, dlrLatencySeries, { suffix: 's', min: 0 });
 }
 
 // Réutilise /stats/by-dimension?dimension=operator (déjà utilisé par l'onglet
@@ -1324,7 +1341,7 @@ async function loadOperatorSummary(hours) {
   const data = await res.json();
   const body = document.getElementById('operatorSummaryBody');
   if (!data.groups.length) {
-    body.innerHTML = `<tr><td colspan="4" class="empty-state">Pas encore de données.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">Pas encore de données.</td></tr>`;
     return;
   }
   body.innerHTML = data.groups.map(g => {
@@ -1334,6 +1351,7 @@ async function loadOperatorSummary(hours) {
       <td class="route-name">${escapeAttr(g.operator)}</td>
       <td class="mono">${g.total || 0}</td>
       <td class="mono">${fmtMs(g.avgLatencyMs)} / ${fmtMs(g.p95LatencyMs)}</td>
+      <td class="mono">${fmtMs(g.avgDlrLatencyMs)} / ${fmtMs(g.p95DlrLatencyMs)}</td>
       <td>
         <div class="bar-wrap">
           <div class="bar-track"><div class="bar-fill" style="width:${pctPx}%; background:${pctColor(pct)}"></div></div>
