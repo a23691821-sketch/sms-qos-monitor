@@ -29,7 +29,8 @@ router.get("/networks", async (req, res) => {
     const networks = await testsms.getNetworks({ forceRefresh: req.query.refresh === "1" });
     res.json(networks);
   } catch (err) {
-    res.status(502).json({ error: String(err.response?.data?.message || err.message || err) });
+    console.error("[testsms] GET /networks erreur:", err.response?.status, JSON.stringify(err.response?.data) || err.message);
+    res.status(502).json({ error: String(err.response?.data?.message || err.response?.data?.error || err.message || err) });
   }
 });
 
@@ -42,7 +43,8 @@ router.get("/balance", async (req, res) => {
     });
     res.json(response.data);
   } catch (err) {
-    res.status(502).json({ error: String(err.response?.data?.message || err.message || err) });
+    console.error("[testsms] GET /balance erreur:", err.response?.status, JSON.stringify(err.response?.data) || err.message);
+    res.status(502).json({ error: String(err.response?.data?.message || err.response?.data?.error || err.message || err) });
   }
 });
 
