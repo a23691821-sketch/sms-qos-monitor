@@ -1394,7 +1394,7 @@ async function loadRecent() {
     <td class="truncate-sm">${escapeAttr(r.sender_id || '—')}</td>
     <td class="truncate-sm">${senderRecuLabel(r.sender_id, r.received_from_number)}</td>
     <td class="mono">${fmtMs(r.latency_ms)}</td>
-    <td>${manualHistoryDlrLabel(r.dlr_status, r.dlr_at)}</td>
+    <td>${manualHistoryDlrLabel(r.dlr_status, r.dlr_at, r.final_status)}</td>
     <td><span class="pill ${r.final_status}">${r.final_status}</span></td>
   </tr>`).join('');
 }
@@ -1836,7 +1836,12 @@ function contentMatchLabel(sent, received, code) {
 
 // Statut + horodatage du DLR réunis dans une seule cellule, sur une seule
 // ligne ("Délivré · 12:03:04"), pour ne pas ajouter de colonne supplémentaire.
-function manualHistoryDlrLabel(status, dlrAt) {
+// finalStatus (optionnel) : quand le fournisseur dit "delivered" (DLR) mais
+// que le statut final du test (basé sur la réception réelle par le
+// téléphone, voir webhook.js /sms-received) ne l'est pas, c'est exactement
+// le cas compté dans le KPI "DLR incohérents" — on le signale directement
+// sur la ligne au lieu de forcer à comparer deux colonnes à l'œil.
+function manualHistoryDlrLabel(status, dlrAt, finalStatus) {
   if (!status) return '<span style="color:var(--text-faint);">—</span>';
   const map = {
     delivered: ['var(--good)', 'Délivré'],
@@ -1847,7 +1852,10 @@ function manualHistoryDlrLabel(status, dlrAt) {
   };
   const [color, label] = map[status] || ['var(--text-dim)', status];
   const time = dlrAt ? ` <span style="color:var(--text-faint);">· ${fmtTimeOnly(dlrAt)}</span>` : '';
-  return `<span style="color:${color}; font-weight:600;">${escapeAttr(label)}</span>${time}`;
+  const mismatch = (status === 'delivered' && finalStatus != null && finalStatus !== 'delivered')
+    ? ` <span style="color:var(--warn); cursor:help;" title="Le fournisseur confirme la délivrance (DLR), mais le téléphone n'a pas (encore) signalé avoir reçu ce SMS — statut final : ${escapeAttr(finalStatus)}.">⚠</span>`
+    : '';
+  return `<span style="color:${color}; font-weight:600;">${escapeAttr(label)}</span>${time}${mismatch}`;
 }
 
 // 'hour' | 'today' | 'yesterday' — calculé côté client pour tomber sur de
@@ -1895,7 +1903,7 @@ async function loadManualHistory() {
         <td class="truncate-sm" title="${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}">${escapeAttr(t.route_name)}${t.operator ? ' / ' + escapeAttr(t.operator) : ''}</td>
         <td class="truncate-sm" title="${escapeAttr(t.device_name)}">${escapeAttr(t.device_name)}</td>
         <td>${escapeAttr(t.provider_id)}</td>
-        <td>${manualHistoryDlrLabel(t.dlr_status, t.dlr_at)}</td>
+        <td>${manualHistoryDlrLabel(t.dlr_status, t.dlr_at, t.final_status)}</td>
         <td class="mono">${t.received_at ? fmtTime(t.received_at) : '<span style="color:var(--text-faint);">—</span>'}</td>
         <td>${manualStatusPill(t.final_status)}</td>
       </tr>
