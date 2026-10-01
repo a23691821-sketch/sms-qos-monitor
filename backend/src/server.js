@@ -5,6 +5,7 @@ const path = require("path");
 
 const webhookRoutes = require("./routes/webhook");
 const apiRoutes = require("./routes/api");
+const testsmsApiRoutes = require("./routes/testsms-api");
 const { startScheduler } = require("./scheduler");
 const { requireSession, handleLogin, handleLogout } = require("./session-auth");
 
@@ -36,6 +37,7 @@ app.use(requireSession);
 
 app.use(express.static(path.join(__dirname, "..", "public")));
 app.use("/api", apiRoutes);
+app.use("/api/testsms", testsmsApiRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

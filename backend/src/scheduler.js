@@ -3,11 +3,15 @@ const db = require("./db");
 const { generateTestCode, buildTestMessageBody } = require("./idgen");
 const { sendTestSms } = require("./providers");
 const { evaluateAlerts } = require("./alerts");
+const { runTestSmsTest, applyTestResult } = require("./testsmsRunner");
+const testsms = require("./providers/testsms");
 
 const TIMEOUT_MINUTES = parseInt(process.env.TIMEOUT_MINUTES || "15", 10);
 
 // Suivi en mémoire de la dernière exécution par route (évite une table de plus)
 const lastRunByRoute = new Map();
+// Idem pour les schedules TestSMS (voir tickTestSmsSchedules ci-dessous)
+const lastRunByTestSmsSchedule = new Map();
 
 // Bouton d'urgence "mettre en pause l'envoi de SMS" (sidebar du dashboard) :
 // persisté en base (table settings) pour survivre à un redémarrage du
@@ -101,11 +105,84 @@ function tickTimeouts() {
   `).run(cutoff);
 }
 
+// Déclenche chaque schedule TestSMS actif selon son propre interval_minutes,
+// même logique que tickRoutes() ci-dessus. Ignore silencieusement si les
+// credentials TestSMS ne sont pas configurés (évite de spammer les logs sur
+// une install qui n'utilise pas cette fonctionnalité).
+function tickTestSmsSchedules() {
+  if (isPaused() || !testsms.credsConfigured()) return;
+
+  const schedules = db.prepare(`SELECT * FROM testsms_schedules WHERE active = 1`).all();
+  const now = Date.now();
+
+  for (const schedule of schedules) {
+    const last = lastRunByTestSmsSchedule.get(schedule.id) || 0;
+    const intervalMs = schedule.interval_minutes * 60 * 1000;
+    if (now - last >= intervalMs) {
+      lastRunByTestSmsSchedule.set(schedule.id, now);
+      runTestSmsTest({
+        mccmnc: schedule.mccmnc,
+        mccmncOriginal: schedule.mccmnc_original,
+        country: schedule.country,
+        network: schedule.network,
+        outboundProviderId: schedule.outbound_provider_id,
+        senderId: schedule.sender_id,
+        scheduleId: schedule.id,
+        triggerType: "scheduled",
+      }).catch((e) => console.error(`[scheduler] testsms schedule ${schedule.id} erreur:`, e));
+    }
+  }
+}
+
+// Filet de sécurité si le callbackUrl de TestSMS ne nous atteint jamais (ex:
+// serveur temporairement inaccessible depuis l'extérieur au moment de la
+// réception). TestSMS attend jusqu'à 60 min avant de conclure NEGATIVE côté
+// eux ; on interroge donc nous-mêmes GET /v1/smsTest/:id pour les tests
+// encore 'pending' entre 3 et 65 minutes d'âge (sous 3 min : laisse le temps
+// au callback normal d'arriver et évite de sur-solliciter l'API).
+const TESTSMS_POLL_MIN_AGE_MINUTES = 3;
+const TESTSMS_POLL_MAX_AGE_MINUTES = 65;
+
+async function tickTestSmsPoll() {
+  if (!testsms.credsConfigured()) return;
+
+  const minCutoff = new Date(Date.now() - TESTSMS_POLL_MIN_AGE_MINUTES * 60 * 1000).toISOString();
+  const maxCutoff = new Date(Date.now() - TESTSMS_POLL_MAX_AGE_MINUTES * 60 * 1000).toISOString();
+
+  const pending = db
+    .prepare(`
+      SELECT * FROM testsms_tests
+      WHERE final_status = 'pending' AND testsms_test_id IS NOT NULL
+        AND created_at <= ? AND created_at >= ?
+    `)
+    .all(minCutoff, maxCutoff);
+
+  for (const row of pending) {
+    try {
+      const result = await testsms.getTestResult(row.testsms_test_id);
+      applyTestResult(row.testsms_test_id, result);
+    } catch (e) {
+      console.error(`[scheduler] polling testsms test ${row.id} erreur:`, e.response?.data || String(e));
+    }
+  }
+
+  // Au-delà de 65 min sans résultat exploitable (callback ni polling), on
+  // arrête d'attendre : TestSMS annonce lui-même qu'il bascule en NEGATIVE
+  // après 60 min, donc un 'pending' encore plus vieux est un test qu'on ne
+  // reverra jamais confirmé.
+  db.prepare(`
+    UPDATE testsms_tests SET final_status = 'timeout'
+    WHERE final_status = 'pending' AND created_at < ?
+  `).run(maxCutoff);
+}
+
 function startScheduler() {
   // Vérifie chaque minute quelles routes doivent être testées et si des tests ont expiré
   cron.schedule("* * * * *", () => {
     tickRoutes();
     tickTimeouts();
+    tickTestSmsSchedules();
+    tickTestSmsPoll().catch((e) => console.error("[scheduler] tickTestSmsPoll erreur:", e));
   });
 
   // Les seuils d'alerte se basent sur les derniers tests déjà enregistrés, donc un

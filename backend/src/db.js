@@ -86,6 +86,69 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- Tests vers un fournisseur externe de test SMS (TestSMS.com) : contrairement
+-- aux routes ci-dessus (on envoie VERS un téléphone qu'on contrôle, qui
+-- confirme via l'app Android), ici la cible est un numéro appartenant à
+-- TestSMS lui-même — on ne peut donc jamais recevoir de confirmation par
+-- l'app. Le flux est aussi inversé : on demande d'abord un numéro + un
+-- messageId à TestSMS (createTest), PUIS on envoie nous-mêmes le SMS vers ce
+-- numéro via un de nos fournisseurs existants (outbound_provider_id,
+-- réutilise sendTestSms()), et c'est TestSMS qui confirme la réception réelle
+-- (receiptStatus) via callback ou polling. "schedule" = config d'un test
+-- répété automatiquement (équivalent de "routes" mais pour ce flux-ci).
+CREATE TABLE IF NOT EXISTS testsms_schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  mccmnc TEXT NOT NULL,
+  mccmnc_original TEXT,
+  country TEXT,
+  network TEXT,
+  outbound_provider_id TEXT NOT NULL,
+  sender_id TEXT,
+  interval_minutes INTEGER NOT NULL DEFAULT 60,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS testsms_tests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  schedule_id INTEGER REFERENCES testsms_schedules(id),
+  trigger_type TEXT NOT NULL DEFAULT 'manual',
+  mccmnc TEXT NOT NULL,
+  mccmnc_original TEXT,
+  country TEXT,
+  network TEXT,
+  outbound_provider_id TEXT NOT NULL,
+  sender_id TEXT,
+  -- Côté TestSMS (créé par POST /v1/createTest)
+  testsms_test_id TEXT,
+  testsms_message_id TEXT,
+  msisdn TEXT,
+  create_test_status TEXT DEFAULT 'pending',
+  create_test_response TEXT,
+  -- Côté notre envoi (notre fournisseur -> numéro TestSMS)
+  our_provider_status TEXT,
+  our_provider_response TEXT,
+  our_provider_message_id TEXT,
+  sent_at TEXT,
+  -- Côté résultat TestSMS (callback ou polling GET /v1/smsTest/:id)
+  receipt_status TEXT,
+  receipt_time TEXT,
+  delivered_sender TEXT,
+  delivered_text TEXT,
+  pdu TEXT,
+  price REAL,
+  currency TEXT,
+  billing_status TEXT,
+  latency_ms INTEGER,
+  final_status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_testsms_tests_testid ON testsms_tests(testsms_test_id);
+CREATE INDEX IF NOT EXISTS idx_testsms_tests_status ON testsms_tests(final_status);
+CREATE INDEX IF NOT EXISTS idx_testsms_tests_schedule ON testsms_tests(schedule_id);
 `);
 
 // Migration : la page "Test manuel" permet un contenu personnalisé, donc le

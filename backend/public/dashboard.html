@@ -481,6 +481,9 @@
       <button class="nav-item" data-page="manual" data-title="Test manuel">
         <span class="nav-icon">▶</span>Test manuel
       </button>
+      <button class="nav-item" data-page="testsms" data-title="Tests fournisseurs (TestSMS)">
+        <span class="nav-icon">⇄</span>Tests fournisseurs
+      </button>
       <button class="nav-item" data-page="config" data-title="Configuration">
         <span class="nav-icon" id="navConfigIcon">🔒</span>Configuration
       </button>
@@ -722,6 +725,129 @@
                   </thead>
                   <tbody id="manualHistoryBody">
                     <tr><td colspan="13" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" data-page="testsms" hidden>
+        <div class="config-card" id="testsmsLockCard" style="display:none;">
+          <p style="margin:0; font-size:13px; color:var(--text-dim);">
+            Connecte-toi d'abord depuis la page <strong>Configuration</strong> (clé admin) pour utiliser les tests fournisseurs externes.
+          </p>
+        </div>
+
+        <div id="testsmsPanel" style="display:none;">
+          <div class="sub-tabs" style="display:flex; gap:6px; margin-bottom:14px;">
+            <button class="sub-tab active" id="testsmsTabRun" data-subtab="run">Lancer un test</button>
+            <button class="sub-tab" id="testsmsTabHistory" data-subtab="history">Historique</button>
+          </div>
+
+          <div id="testsmsSubpageRun">
+            <div class="config-card">
+              <div class="section-head" style="margin-bottom:10px;">
+                <h2>Test TestSMS.com ponctuel</h2>
+                <span id="testsmsBalance" style="font-size:12px; color:var(--text-faint);"></span>
+              </div>
+              <p style="margin:0 0 12px; font-size:12px; color:var(--text-dim);">
+                Le numéro testé appartient à TestSMS (pas un de tes téléphones) : on leur demande un numéro + un code,
+                on envoie nous-mêmes le SMS vers ce numéro via un de nos fournisseurs, et c'est TestSMS qui confirme la
+                réception réelle sur son réseau d'appareils.
+              </p>
+              <div class="form-grid">
+                <div style="grid-column: span 2;">
+                  <label>Pays / opérateur (TestSMS — liste complète, à la demande)</label>
+                  <select id="testsmsNetworkSelect" style="width:100%;"></select>
+                </div>
+                <div>
+                  <label>Fournisseur sortant (notre envoi vers le numéro TestSMS)</label>
+                  <select id="testsmsOutboundProvider" style="width:100%;"></select>
+                </div>
+                <div>
+                  <label>Sender ID (optionnel)</label>
+                  <input id="testsmsSenderId" type="text" placeholder="Laisser vide pour la valeur par défaut" style="width:100%;" />
+                </div>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-sm" id="testsmsRefreshNetworksBtn" type="button">Rafraîchir la liste des réseaux</button>
+                <button class="btn btn-primary" id="testsmsRunBtn">Lancer un test</button>
+                <span id="testsmsRunMsg" class="config-msg"></span>
+              </div>
+            </div>
+
+            <div id="testsmsResultCard" style="display:none;"></div>
+
+            <div class="config-card">
+              <div class="section-head" style="margin-bottom:10px;"><h2>Planifications automatiques</h2></div>
+              <div class="table-card">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Nom</th><th>Pays / réseau</th><th>Fournisseur sortant</th><th>Sender</th>
+                      <th>Intervalle</th><th>Statut</th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="testsmsSchedulesBody"></tbody>
+                </table>
+              </div>
+
+              <div class="section-head" style="margin-top:20px; margin-bottom:0;"><h2 style="font-size:13px;">+ Nouvelle planification</h2></div>
+              <div class="form-grid">
+                <div><label>Nom</label><input id="newTestsmsScheduleName" placeholder="TestSMS - IT Vodafone" /></div>
+                <div style="grid-column: span 2;">
+                  <label>Pays / opérateur (TestSMS)</label>
+                  <select id="newTestsmsScheduleNetwork" style="width:100%;"></select>
+                </div>
+                <div><label>Fournisseur sortant</label><select id="newTestsmsScheduleProvider"></select></div>
+                <div><label>Sender ID (optionnel)</label><input id="newTestsmsScheduleSender" placeholder="SMS" /></div>
+                <div><label>Intervalle (min)</label><input id="newTestsmsScheduleInterval" type="number" min="15" value="60" /></div>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-sm btn-primary" id="createTestsmsScheduleBtn">Créer la planification</button>
+                <span id="createTestsmsScheduleMsg" class="config-msg"></span>
+              </div>
+            </div>
+          </div>
+
+          <div id="testsmsSubpageHistory" style="display:none;">
+            <div class="table-card">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                <h3 style="margin:0; font-size:14px;">Historique des tests TestSMS</h3>
+                <div class="dim-tabs" id="testsmsFilterTabs">
+                  <button class="dim-tab active" data-filter="all">Tous</button>
+                  <button class="dim-tab" data-filter="scheduled">Automatiques</button>
+                  <button class="dim-tab" data-filter="manual">Manuels</button>
+                </div>
+                <div class="dim-tabs" id="testsmsHistoryRangeTabs">
+                  <button class="dim-tab" data-range="hour">Dernière heure</button>
+                  <button class="dim-tab active" data-range="today">Aujourd'hui</button>
+                  <button class="dim-tab" data-range="yesterday">Hier</button>
+                </div>
+                <button class="btn btn-sm" id="testsmsHistoryRefreshBtn">Rafraîchir</button>
+              </div>
+              <div style="overflow-x:auto;">
+                <table class="data-table compact-table" id="testsmsHistoryTable">
+                  <thead>
+                    <tr>
+                      <th>Créé le</th>
+                      <th>Type</th>
+                      <th>Pays / réseau</th>
+                      <th>Fournisseur sortant</th>
+                      <th>Numéro TestSMS</th>
+                      <th>Code (messageId)</th>
+                      <th>Expéditeur reçu</th>
+                      <th>Texte reçu</th>
+                      <th>Latence</th>
+                      <th>Statut TestSMS</th>
+                      <th>Statut final</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="testsmsHistoryBody">
+                    <tr><td colspan="12" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1204,7 +1330,15 @@ function syncMainWidth() {
   const manualPage = document.querySelector('.page[data-page="manual"]');
   const manualVisible = manualPage && !manualPage.hidden;
   const historyActive = document.getElementById('manualTabHistory').classList.contains('active');
-  document.getElementById('mainContent').classList.toggle('wide', manualVisible && historyActive);
+
+  const testsmsPage = document.querySelector('.page[data-page="testsms"]');
+  const testsmsVisible = testsmsPage && !testsmsPage.hidden;
+  const testsmsHistoryActive = document.getElementById('testsmsTabHistory').classList.contains('active');
+
+  document.getElementById('mainContent').classList.toggle(
+    'wide',
+    (manualVisible && historyActive) || (testsmsVisible && testsmsHistoryActive)
+  );
 }
 
 document.querySelectorAll('.nav-item').forEach(btn => {
@@ -1217,9 +1351,11 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     document.getElementById('pageTitle').textContent = btn.dataset.title || btn.textContent.trim();
 
     // Le sélecteur de période et l'export CSV n'ont pas de sens sur ces pages
-    document.getElementById('topbarControls').style.display = (page === 'config' || page === 'manual') ? 'none' : 'flex';
+    document.getElementById('topbarControls').style.display =
+      (page === 'config' || page === 'manual' || page === 'testsms') ? 'none' : 'flex';
 
     if (page === 'manual') loadManualPage();
+    if (page === 'testsms') loadTestsmsPage();
     syncMainWidth();
   });
 });
@@ -1739,15 +1875,24 @@ async function loadManualPage() {
 
 // ---------- Sous-page "Historique" (tests manuels uniquement) ----------
 
+// Partagé entre "Test manuel" et "Tests fournisseurs" (TestSMS), qui ont
+// chacun leur propre paire de sous-onglets Lancer/Historique. On scope la
+// recherche/activation à la page courante (via .closest('.page')) pour que
+// cliquer un sous-onglet d'une page ne désactive pas celui de l'autre.
 document.querySelectorAll('.sub-tab').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+    const page = btn.closest('.page');
+    const prefix = page.dataset.page === 'testsms' ? 'testsms' : 'manual';
+    page.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const sub = btn.dataset.subtab;
-    document.getElementById('manualSubpageRun').style.display = sub === 'run' ? 'block' : 'none';
-    document.getElementById('manualSubpageHistory').style.display = sub === 'history' ? 'block' : 'none';
+    document.getElementById(`${prefix}SubpageRun`).style.display = sub === 'run' ? 'block' : 'none';
+    document.getElementById(`${prefix}SubpageHistory`).style.display = sub === 'history' ? 'block' : 'none';
     syncMainWidth();
-    if (sub === 'history') loadManualHistory();
+    if (sub === 'history') {
+      if (prefix === 'manual') loadManualHistory();
+      else loadTestsmsHistory();
+    }
   });
 });
 
@@ -2070,6 +2215,425 @@ function renderManualResult(test) {
       </div>
     </div>
   `;
+}
+
+// ---------- Page "Tests fournisseurs" (TestSMS.com) ----------
+// Contrairement à "Test manuel" (vers un téléphone qu'on contrôle), ici la
+// cible est un numéro appartenant à TestSMS : on leur demande un numéro+code
+// (createTest), on envoie nous-mêmes le SMS vers ce numéro via un de nos
+// fournisseurs, et c'est TestSMS qui confirme la réception réelle (pas l'app
+// Android, qui n'a jamais ce numéro).
+
+let testsmsPollTimer = null;
+let testsmsNetworksList = []; // [{mccmnc, mccmncOriginal, country, network, region, isoAlpha2}, ...]
+
+function showTestsmsLock() {
+  document.getElementById('testsmsPanel').style.display = 'none';
+  document.getElementById('testsmsLockCard').style.display = 'block';
+}
+function showTestsmsPanel() {
+  document.getElementById('testsmsLockCard').style.display = 'none';
+  document.getElementById('testsmsPanel').style.display = 'block';
+}
+
+function networkOptionLabel(n) {
+  const country = n.country || n.isoAlpha2 || '?';
+  const network = n.network || n.mccmnc;
+  return `${country} — ${network} (${n.mccmnc})${n.mccmncOriginal ? ' [porté]' : ''}`;
+}
+
+// Peuple les deux <select> (test ponctuel + nouvelle planification) à partir
+// de la MÊME liste en mémoire (index partagé), pour n'interroger l'API qu'une
+// fois par chargement de page.
+function populateNetworkSelects() {
+  const optionsHtml = testsmsNetworksList.length
+    ? testsmsNetworksList.map((n, i) => `<option value="${i}">${escapeAttr(networkOptionLabel(n))}</option>`).join('')
+    : '<option value="">(aucun réseau — vérifie les credentials TestSMS)</option>';
+  document.getElementById('testsmsNetworkSelect').innerHTML = optionsHtml;
+  document.getElementById('newTestsmsScheduleNetwork').innerHTML = optionsHtml;
+}
+
+async function loadTestsmsNetworks(forceRefresh) {
+  try {
+    const res = await adminFetch(`/api/testsms/networks${forceRefresh ? '?refresh=1' : ''}`);
+    const networks = await res.json();
+    testsmsNetworksList = [...networks].sort((a, b) =>
+      (a.country || '').localeCompare(b.country || '') || (a.network || '').localeCompare(b.network || '')
+    );
+    populateNetworkSelects();
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') {
+      testsmsNetworksList = [];
+      populateNetworkSelects();
+    }
+  }
+}
+
+async function loadTestsmsOutboundProviders() {
+  try {
+    const res = await adminFetch('/api/testsms/outbound-providers');
+    const providers = await res.json();
+    const html = providers.length
+      ? providers.map(p => `<option value="${p}">${p}</option>`).join('')
+      : '<option value="">(aucun fournisseur configuré)</option>';
+    document.getElementById('testsmsOutboundProvider').innerHTML = html;
+    document.getElementById('newTestsmsScheduleProvider').innerHTML = html;
+  } catch (e) { /* géré par adminFetch si session/clé invalide */ }
+}
+
+async function loadTestsmsBalance() {
+  const el = document.getElementById('testsmsBalance');
+  try {
+    const res = await adminFetch('/api/testsms/balance');
+    if (!res.ok) throw new Error('balance_error');
+    const data = await res.json();
+    el.textContent = `Solde TestSMS : ${data.credit} crédits`;
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') el.textContent = 'Solde TestSMS indisponible (vérifie les credentials)';
+  }
+}
+
+async function loadTestsmsPage() {
+  if (!getAdminKey()) { showTestsmsLock(); return; }
+  try {
+    await Promise.all([loadTestsmsNetworks(false), loadTestsmsOutboundProviders(), loadTestsmsSchedules(), loadTestsmsBalance()]);
+    showTestsmsPanel();
+  } catch (e) {
+    showTestsmsLock();
+  }
+}
+
+document.getElementById('testsmsRefreshNetworksBtn').addEventListener('click', () => loadTestsmsNetworks(true));
+
+// ---------- Planifications automatiques ----------
+
+async function loadTestsmsSchedules() {
+  const res = await adminFetch('/api/testsms/schedules');
+  const schedules = await res.json();
+  renderTestsmsSchedules(schedules);
+}
+
+function renderTestsmsSchedules(schedules) {
+  const body = document.getElementById('testsmsSchedulesBody');
+  if (!schedules.length) {
+    body.innerHTML = `<tr><td colspan="7" class="empty-state">Aucune planification. Crée-en une ci-dessous.</td></tr>`;
+    return;
+  }
+  body.innerHTML = schedules.map(s => `
+    <tr data-schedule-id="${s.id}">
+      <td>${escapeAttr(s.name)}</td>
+      <td class="truncate-sm" title="${escapeAttr(s.country || '')} / ${escapeAttr(s.network || '')}">${escapeAttr(s.country || '—')} / ${escapeAttr(s.network || s.mccmnc)}</td>
+      <td class="mono">${escapeAttr(s.outbound_provider_id)}</td>
+      <td class="truncate-sm">${escapeAttr(s.sender_id || '—')}</td>
+      <td>
+        <div class="interval-cell">
+          <input type="number" min="15" value="${s.interval_minutes}" class="testsms-schedule-interval-input" />
+          <span>min</span>
+        </div>
+      </td>
+      <td><span class="toggle-pill ${s.active ? 'on' : 'off'} testsms-schedule-active-toggle" data-active="${s.active ? 1 : 0}">${s.active ? 'Actif' : 'En pause'}</span></td>
+      <td style="display:flex; gap:6px;">
+        <button class="btn btn-sm testsms-schedule-save-btn">Enregistrer</button>
+        <button class="btn btn-sm testsms-schedule-delete-btn">Supprimer</button>
+      </td>
+    </tr>`).join('');
+
+  body.querySelectorAll('.testsms-schedule-active-toggle').forEach(el => {
+    el.addEventListener('click', () => {
+      const isOn = el.dataset.active === '1';
+      el.dataset.active = isOn ? '0' : '1';
+      el.textContent = isOn ? 'En pause' : 'Actif';
+      el.classList.toggle('on', !isOn);
+      el.classList.toggle('off', isOn);
+    });
+  });
+
+  body.querySelectorAll('.testsms-schedule-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const scheduleId = row.dataset.scheduleId;
+      const intervalMinutes = parseInt(row.querySelector('.testsms-schedule-interval-input').value, 10);
+      const active = row.querySelector('.testsms-schedule-active-toggle').dataset.active === '1';
+      btn.textContent = '...';
+      btn.disabled = true;
+      try {
+        await adminFetch(`/api/testsms/schedules/${scheduleId}`, { method: 'PATCH', body: JSON.stringify({ intervalMinutes, active }) });
+        btn.textContent = 'Enregistré ✓';
+        setTimeout(() => { btn.textContent = 'Enregistrer'; btn.disabled = false; }, 1500);
+      } catch (e) {
+        btn.textContent = 'Erreur';
+        btn.disabled = false;
+      }
+    });
+  });
+
+  body.querySelectorAll('.testsms-schedule-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (!confirm('Supprimer cette planification ?')) return;
+      try {
+        await adminFetch(`/api/testsms/schedules/${row.dataset.scheduleId}`, { method: 'DELETE' });
+        await loadTestsmsSchedules();
+      } catch (e) { /* géré par adminFetch */ }
+    });
+  });
+}
+
+document.getElementById('createTestsmsScheduleBtn').addEventListener('click', async () => {
+  const msg = document.getElementById('createTestsmsScheduleMsg');
+  const name = document.getElementById('newTestsmsScheduleName').value.trim();
+  const idx = document.getElementById('newTestsmsScheduleNetwork').value;
+  const outboundProviderId = document.getElementById('newTestsmsScheduleProvider').value;
+  const senderId = document.getElementById('newTestsmsScheduleSender').value.trim();
+  const intervalMinutes = parseInt(document.getElementById('newTestsmsScheduleInterval').value, 10) || 60;
+  const network = testsmsNetworksList[idx];
+
+  if (!name || !network || !outboundProviderId) {
+    msg.textContent = 'Nom, réseau et fournisseur sortant sont requis.';
+    msg.className = 'config-msg err';
+    return;
+  }
+  try {
+    await adminFetch('/api/testsms/schedules', {
+      method: 'POST',
+      body: JSON.stringify({
+        name, mccmnc: network.mccmnc, mccmncOriginal: network.mccmncOriginal,
+        country: network.country, network: network.network, outboundProviderId, senderId, intervalMinutes,
+      }),
+    });
+    msg.textContent = 'Planification créée.';
+    msg.className = 'config-msg ok';
+    document.getElementById('newTestsmsScheduleName').value = '';
+    await loadTestsmsSchedules();
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') { msg.textContent = 'Erreur lors de la création.'; msg.className = 'config-msg err'; }
+  }
+});
+
+// ---------- Test ponctuel + suivi en direct ----------
+
+document.getElementById('testsmsRunBtn').addEventListener('click', async () => {
+  const msg = document.getElementById('testsmsRunMsg');
+  const idx = document.getElementById('testsmsNetworkSelect').value;
+  const outboundProviderId = document.getElementById('testsmsOutboundProvider').value;
+  const senderId = document.getElementById('testsmsSenderId').value.trim();
+  const network = testsmsNetworksList[idx];
+
+  if (!network || !outboundProviderId) {
+    msg.textContent = 'Réseau et fournisseur sortant sont requis.';
+    msg.className = 'config-msg err';
+    return;
+  }
+
+  if (testsmsPollTimer) { clearTimeout(testsmsPollTimer); testsmsPollTimer = null; }
+  document.getElementById('testsmsResultCard').style.display = 'none';
+
+  const btn = document.getElementById('testsmsRunBtn');
+  btn.disabled = true;
+  btn.textContent = 'Envoi...';
+  msg.textContent = '';
+  msg.className = 'config-msg';
+
+  try {
+    const res = await adminFetch('/api/testsms/tests', {
+      method: 'POST',
+      body: JSON.stringify({
+        mccmnc: network.mccmnc, mccmncOriginal: network.mccmncOriginal,
+        country: network.country, network: network.network, outboundProviderId, senderId,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      msg.textContent = data.error || 'Erreur lors du lancement du test.';
+      msg.className = 'config-msg err';
+    } else {
+      msg.textContent = 'Test lancé, suivi en direct ci-dessous...';
+      msg.className = 'config-msg ok';
+      pollTestsmsTest(data.testId);
+    }
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') { msg.textContent = 'Erreur lors du lancement du test.'; msg.className = 'config-msg err'; }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Lancer un test';
+  }
+});
+
+// Poll toutes les 2s pendant 90s max, comme pour "Test manuel". Le résultat
+// réel peut arriver bien plus tard (TestSMS attend jusqu'à 60 min avant de
+// conclure) : au-delà de 90s, l'historique (sous-onglet) reflètera le
+// résultat dès qu'il arrive via webhook ou le polling de secours serveur.
+function pollTestsmsTest(testId) {
+  let attempts = 0;
+  const maxAttempts = 45;
+
+  const poll = async () => {
+    attempts++;
+    let test;
+    try {
+      const res = await adminFetch(`/api/testsms/tests/${testId}`);
+      test = await res.json();
+    } catch (e) {
+      return;
+    }
+
+    renderTestsmsResult(test);
+
+    if (test.final_status === 'pending' && attempts < maxAttempts) {
+      testsmsPollTimer = setTimeout(poll, 2000);
+    }
+  };
+  poll();
+}
+
+function testsmsStatusPill(status) {
+  const known = ['delivered', 'failed', 'timeout', 'pending'];
+  const cls = known.includes(status) ? status : 'pending';
+  const label = { delivered: 'Délivré', failed: 'Échec', timeout: 'Timeout', pending: 'En cours' }[cls];
+  return `<span class="pill ${cls}">${label}</span>`;
+}
+
+// receiptStatus brut de TestSMS, avec un avertissement visuel quand le texte
+// ou l'expéditeur a été altéré en route (TEXT_OR_SENDER_REPLACED) : le SMS
+// EST arrivé, mais pas forcément intact — même logique que le flag DLR
+// incohérent de "Test manuel".
+function testsmsReceiptLabel(receiptStatus) {
+  if (!receiptStatus) return '<span style="color:var(--text-faint);">—</span>';
+  const map = {
+    POSITIVE: ['var(--good)', 'Positif'],
+    TEXT_OR_SENDER_REPLACED: ['var(--warn)', 'Reçu (altéré)'],
+    NEGATIVE: ['var(--bad)', 'Négatif'],
+    NUM_OFFLINE: ['var(--bad)', 'Numéro hors ligne'],
+    NUM_NOT_AVAILABLE: ['var(--bad)', 'Numéro indisponible'],
+    WAIT: ['var(--pending)', 'En attente'],
+    RECEIVED: ['var(--pending)', 'Reçu (brut)'],
+    EXTERNAL: ['var(--pending)', 'Numéro externe'],
+  };
+  const [color, label] = map[receiptStatus] || ['var(--text-dim)', receiptStatus];
+  return `<span style="color:${color}; font-weight:600;">${escapeAttr(label)}</span>`;
+}
+
+function testsmsTimelineStep(title, state, bodyHtml) {
+  return `
+    <div class="ml-step ${state}">
+      <div class="ml-step-dot"></div>
+      <div>
+        <div class="ml-step-title">${title}</div>
+        ${bodyHtml}
+      </div>
+    </div>`;
+}
+
+function renderTestsmsResult(test) {
+  const card = document.getElementById('testsmsResultCard');
+  card.style.display = 'block';
+
+  const createBody = `
+    <div class="ml-meta">Statut : <span class="mono">${escapeAttr(test.create_test_status || '—')}</span></div>
+    ${test.msisdn ? `<div class="ml-meta">Numéro TestSMS : <span class="mono">${escapeAttr(test.msisdn)}</span> — code à envoyer : <span class="mono">${escapeAttr(test.testsms_message_id || '—')}</span></div>` : ''}
+  `;
+
+  const sentBody = test.sent_at
+    ? `<div class="ml-meta">Envoyé à ${fmtTime(test.sent_at)} via <span class="mono">${escapeAttr(test.outbound_provider_id)}</span> — statut : <span class="mono">${escapeAttr(test.our_provider_status || '—')}</span></div>`
+    : `<div class="ml-meta ml-waiting">En attente du numéro TestSMS...</div>`;
+
+  const resultBody = test.receipt_status
+    ? `
+      <div class="ml-meta">Statut TestSMS : ${testsmsReceiptLabel(test.receipt_status)}${test.receipt_time ? ' — ' + fmtTime(test.receipt_time) : ''}${test.latency_ms != null ? ' (' + fmtMs(test.latency_ms) + ' après notre envoi)' : ''}</div>
+      ${test.delivered_sender ? `<div class="ml-meta">Expéditeur reçu : <span class="mono">${escapeAttr(test.delivered_sender)}</span></div>` : ''}
+      ${test.delivered_text ? `<div class="ml-message-box mono">${escapeAttr(test.delivered_text)}</div>` : ''}
+    `
+    : `<div class="ml-meta ml-waiting">En attente du résultat TestSMS (callback ou polling, jusqu'à 60 min)...</div>`;
+
+  card.innerHTML = `
+    <div class="config-card">
+      <div class="section-head" style="margin-bottom:16px;">
+        <h2>${escapeAttr(test.country || '')} / ${escapeAttr(test.network || test.mccmnc)}</h2>
+        ${testsmsStatusPill(test.final_status)}
+      </div>
+
+      <div class="ml-timeline">
+        ${testsmsTimelineStep('1. Demande du numéro à TestSMS', test.msisdn ? 'done' : 'pending', createBody)}
+        ${testsmsTimelineStep('2. Notre envoi vers ce numéro', test.sent_at ? 'done' : 'pending', sentBody)}
+        ${testsmsTimelineStep('3. Résultat TestSMS (réception réelle)', test.receipt_status ? 'done' : 'pending', resultBody)}
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Historique ----------
+
+let currentTestsmsFilter = 'all';
+let currentTestsmsHistoryRange = 'today';
+
+document.querySelectorAll('#testsmsFilterTabs .dim-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#testsmsFilterTabs .dim-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentTestsmsFilter = btn.dataset.filter;
+    loadTestsmsHistory();
+  });
+});
+document.querySelectorAll('#testsmsHistoryRangeTabs .dim-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#testsmsHistoryRangeTabs .dim-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentTestsmsHistoryRange = btn.dataset.range;
+    loadTestsmsHistory();
+  });
+});
+document.getElementById('testsmsHistoryRefreshBtn').addEventListener('click', loadTestsmsHistory);
+
+async function loadTestsmsHistory() {
+  const body = document.getElementById('testsmsHistoryBody');
+  body.innerHTML = '<tr><td colspan="12" style="text-align:center; color:var(--text-faint);">Chargement...</td></tr>';
+  try {
+    const { since, until } = quickRangeBounds(currentTestsmsHistoryRange);
+    const qs = new URLSearchParams({ limit: '100', since });
+    if (until) qs.set('until', until);
+    if (currentTestsmsFilter !== 'all') qs.set('triggerType', currentTestsmsFilter);
+    const res = await adminFetch(`/api/testsms/tests?${qs.toString()}`);
+    const tests = await res.json();
+    if (!tests.length) {
+      body.innerHTML = '<tr><td colspan="12" style="text-align:center; color:var(--text-faint);">Aucun test TestSMS pour le moment.</td></tr>';
+      return;
+    }
+    body.innerHTML = tests.map(t => `
+      <tr data-testsms-id="${t.id}">
+        <td class="mono">${fmtTimeOnly(t.created_at)}</td>
+        <td>${recentTypeLabel(t.trigger_type)}</td>
+        <td class="truncate-sm" title="${escapeAttr(t.country || '')} / ${escapeAttr(t.network || '')}">${escapeAttr(t.country || '—')} / ${escapeAttr(t.network || t.mccmnc)}</td>
+        <td class="mono">${escapeAttr(t.outbound_provider_id)}</td>
+        <td class="mono">${escapeAttr(t.msisdn || '—')}</td>
+        <td class="mono">${escapeAttr(t.testsms_message_id || '—')}</td>
+        <td class="truncate-sm">${escapeAttr(t.delivered_sender || '—')}</td>
+        <td class="truncate-sm" title="${escapeAttr(t.delivered_text || '')}">${escapeAttr(t.delivered_text || '—')}</td>
+        <td class="mono">${fmtMs(t.latency_ms)}</td>
+        <td>${testsmsReceiptLabel(t.receipt_status)}</td>
+        <td>${testsmsStatusPill(t.final_status)}</td>
+        <td>${t.final_status === 'pending' && t.testsms_test_id ? '<button class="btn btn-sm testsms-row-refresh-btn">Rafraîchir</button>' : ''}</td>
+      </tr>
+    `).join('');
+
+    body.querySelectorAll('.testsms-row-refresh-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const row = btn.closest('tr');
+        btn.textContent = '...';
+        btn.disabled = true;
+        try {
+          await adminFetch(`/api/testsms/tests/${row.dataset.testsmsId}/refresh`, { method: 'POST' });
+          await loadTestsmsHistory();
+        } catch (e) {
+          btn.textContent = 'Erreur';
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') {
+      body.innerHTML = '<tr><td colspan="12" style="text-align:center; color:var(--bad);">Erreur de chargement.</td></tr>';
+    }
+  }
 }
 
 async function refreshAll() {

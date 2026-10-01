@@ -1,6 +1,7 @@
 const express = require("express");
 const db = require("./../db");
 const { extractCode } = require("./../idgen");
+const { applyTestResult } = require("./../testsmsRunner");
 
 const router = express.Router();
 
@@ -165,5 +166,28 @@ function handleDlr(req, res) {
 
 router.post("/dlr/:providerId", handleDlr);
 router.get("/dlr/:providerId", handleDlr);
+
+// Callback appelé par TestSMS.com dès qu'un résultat de test est disponible
+// (voir testsmsRunner.js : callbackUrl transmis à chaque createTest). Payload
+// attendu de même forme que GET /v1/smsTest/:id (testId, messageId,
+// receiptStatus, deliveredSender, deliveredText, phone, pdu, scts, scn,
+// arrivalTs, price, currency, billingStatus, chargedAt...). On matche sur
+// testId (colonne testsms_test_id), pas sur messageId, pour rester robuste
+// même si TestSMS réutilisait un jour un messageId sur deux tests différents.
+router.post("/testsms-callback", (req, res) => {
+  const payload = req.body || {};
+  const testsmsTestId = payload.testId ?? payload.id;
+
+  if (testsmsTestId == null) {
+    console.warn("[testsms-callback] payload sans testId:", JSON.stringify(payload));
+    return res.json({ matched: false, reason: "testId manquant dans le payload" });
+  }
+
+  const outcome = applyTestResult(testsmsTestId, payload);
+  if (!outcome.matched) {
+    console.warn(`[testsms-callback] aucun test local pour testsms_test_id=${testsmsTestId}`);
+  }
+  res.json(outcome);
+});
 
 module.exports = router;
