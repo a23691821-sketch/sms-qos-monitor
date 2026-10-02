@@ -298,10 +298,29 @@ function renderSmallMultiplesChart(containerId, labels, series, opts) {
 
   const n = labels.length;
   const rowGap = 4, labelColW = 90;
-  const containerWidth = container.clientWidth || 600;
-  const containerHeight = Math.max(160, series.length * 56);
-  container.style.height = containerHeight + 'px';
-  const rowH = (containerHeight - rowGap * (series.length - 1)) / series.length;
+  // clientWidth inclut le padding CSS de la carte (18px/20px) : utiliser
+  // cette valeur telle quelle pour dimensionner le contenu dessiné À
+  // L'INTÉRIEUR de cette même carte revient à compter deux fois ce padding
+  // (une fois dans clientWidth, une fois via le padding réel du navigateur),
+  // ce qui poussait le dernier point/la dernière ligne ~40px trop loin à
+  // droite, visible hors du coin arrondi de la carte. On retire le padding
+  // réel (lu via getComputedStyle) pour obtenir la largeur réellement
+  // disponible pour le contenu.
+  const containerStyle = getComputedStyle(container);
+  const containerPaddingX = parseFloat(containerStyle.paddingLeft || 0) + parseFloat(containerStyle.paddingRight || 0);
+  const containerPaddingY = parseFloat(containerStyle.paddingTop || 0) + parseFloat(containerStyle.paddingBottom || 0);
+  const containerWidth = (container.clientWidth || 600) - containerPaddingX;
+  // Même piège que pour la largeur, version verticale : avec
+  // box-sizing:border-box, fixer container.style.height à une valeur H fait
+  // de H la hauteur TOTALE de la boîte (padding inclus), donc le contenu
+  // (les rangées) ne dispose en réalité que de H - paddingY. En calculant
+  // rowH à partir du H complet, les rangées débordaient du bas de la carte
+  // d'exactement ce paddingY. On calcule donc la hauteur de CONTENU voulue
+  // séparément, puis on ajoute le padding pour obtenir la hauteur totale à
+  // appliquer à la carte.
+  const contentHeight = Math.max(160, series.length * 56);
+  container.style.height = (contentHeight + containerPaddingY) + 'px';
+  const rowH = (contentHeight - rowGap * (series.length - 1)) / series.length;
   const padL = 26, padR = 8, padT = 6;
   const plotW = containerWidth - labelColW - padL - padR;
   const xFor = (i) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);

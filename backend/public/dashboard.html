@@ -1179,8 +1179,24 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
   // de le répéter à chaque rangée).
   const rowGap = 4;
   const labelColW = 78;
-  const containerWidth = container.clientWidth || 600;
-  const containerHeight = container.clientHeight || 220;
+  // clientWidth inclut le padding CSS de la carte (20px) : l'utiliser tel
+  // quel pour dimensionner le contenu dessiné À L'INTÉRIEUR de cette même
+  // carte revient à compter deux fois ce padding, ce qui poussait le
+  // dernier point/la dernière ligne ~40px trop loin à droite, visible hors
+  // du coin arrondi de la carte. On retire le padding réel (getComputedStyle)
+  // pour obtenir la largeur réellement disponible pour le contenu.
+  const containerStyle = getComputedStyle(container);
+  const containerPaddingX = parseFloat(containerStyle.paddingLeft || 0) + parseFloat(containerStyle.paddingRight || 0);
+  const containerPaddingY = parseFloat(containerStyle.paddingTop || 0) + parseFloat(containerStyle.paddingBottom || 0);
+  const containerWidth = (container.clientWidth || 600) - containerPaddingX;
+  // Même piège que pour la largeur, version verticale : clientHeight inclut
+  // aussi le padding CSS (18px/20px de .chart-card), donc utiliser cette
+  // valeur telle quelle pour dimensionner les rangées dessinées À
+  // L'INTÉRIEUR de cette même carte revient à compter deux fois ce padding
+  // et poussait la dernière rangée (et son axe des temps) hors du bas de la
+  // carte. On retire le padding vertical réel pour obtenir la hauteur de
+  // contenu réellement disponible.
+  const containerHeight = (container.clientHeight || 220) - containerPaddingY;
   const rowH = (containerHeight - rowGap * (opSeries.length - 1)) / opSeries.length;
   const padL = 26, padR = 8, padT = 6;
   const plotW = containerWidth - labelColW - padL - padR;
