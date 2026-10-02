@@ -418,6 +418,10 @@
   }
   .toggle-pill.on { background: var(--good-dim); border-color: var(--good); color: var(--good); }
   .toggle-pill.off { background: var(--bad-dim); border-color: var(--bad); color: var(--bad); }
+  /* Variante neutre pour les scopes opérateur d'un client : "non coché" n'est
+     pas une erreur (contrairement à "Désactivé" pour le statut du compte),
+     donc pas de rouge ici — juste un pill éteint vs. allumé en vert. */
+  .toggle-pill.scope-off { background: var(--surface-2); border-color: var(--line); color: var(--text-dim); }
   .config-msg { font-size: 12px; margin-top: 8px; }
   .config-msg.ok { color: var(--good); }
   .config-msg.err { color: var(--bad); }
@@ -1804,7 +1808,7 @@ async function loadConfigSection() {
   renderProviderOptions(providers);
   renderDeviceOptions(devices);
   renderClientScopeCheckboxes(availableOperators);
-  renderAdminClients(clients);
+  renderAdminClients(clients, availableOperators);
   document.getElementById('clientPortalUrl').textContent = location.origin + '/client.html';
 }
 
@@ -1823,22 +1827,47 @@ function renderClientScopeCheckboxes(availableOperators) {
     </label>`).join('');
 }
 
-function renderAdminClients(clients) {
+function renderAdminClients(clients, availableOperators) {
   const body = document.getElementById('adminClientsBody');
   if (!clients.length) {
     body.innerHTML = `<tr><td colspan="7" class="empty-state">Aucun client. Crée-en un ci-dessous.</td></tr>`;
     return;
   }
-  body.innerHTML = clients.map(c => `
+  const ops = availableOperators || [];
+  body.innerHTML = clients.map(c => {
+    const activeKeys = new Set(c.scopes.map(scopeKey));
+    // Pills cliquables plutôt que texte figé : avant, changer les opérateurs
+    // visibles d'un client obligeait à le supprimer et le recréer (seul le
+    // formulaire de création avait des cases à cocher). Un opérateur présent
+    // dans les routes existantes mais pas encore dans les scopes du client
+    // apparaît ici éteint, prêt à être activé d'un clic puis "Enregistrer".
+    const scopesHtml = ops.length
+      ? ops.map(o => {
+          const key = scopeKey(o);
+          const on = activeKeys.has(key);
+          return `<span class="toggle-pill ${on ? 'on' : 'scope-off'} client-scope-toggle" style="margin:1px;" data-operator="${escapeAttr(o.operator)}" data-country="${escapeAttr(o.country || '')}" data-active="${on ? 1 : 0}">${escapeAttr(o.operator)}${o.country ? ' (' + escapeAttr(o.country) + ')' : ''}</span>`;
+        }).join('')
+      : '<span style="color:var(--text-faint);">Aucune route avec opérateur renseigné pour l\'instant.</span>';
+    return `
     <tr data-client-id="${c.id}">
       <td>${escapeAttr(c.name)}</td>
       <td class="mono">${escapeAttr(c.username)}</td>
-      <td>${c.scopes.length ? c.scopes.map(s => `<span class="toggle-pill" style="margin:1px;">${escapeAttr(s.operator)}${s.country ? ' (' + escapeAttr(s.country) + ')' : ''}</span>`).join('') : '<span style="color:var(--text-faint);">aucun</span>'}</td>
+      <td>${scopesHtml}</td>
       <td><span class="toggle-pill ${c.active ? 'on' : 'off'} client-active-toggle" data-active="${c.active ? 1 : 0}">${c.active ? 'Actif' : 'Désactivé'}</span></td>
       <td><button class="btn btn-sm client-resetpw-btn">Changer le mot de passe</button></td>
       <td><button class="btn btn-sm client-save-btn">Enregistrer</button></td>
       <td><button class="btn btn-sm client-delete-btn">Supprimer</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+
+  body.querySelectorAll('.client-scope-toggle').forEach(el => {
+    el.addEventListener('click', () => {
+      const isOn = el.dataset.active === '1';
+      el.dataset.active = isOn ? '0' : '1';
+      el.classList.toggle('on', !isOn);
+      el.classList.toggle('scope-off', isOn);
+    });
+  });
 
   body.querySelectorAll('.client-active-toggle').forEach(el => {
     el.addEventListener('click', () => {
@@ -1889,10 +1918,13 @@ function renderAdminClients(clients) {
       const row = btn.closest('tr');
       const clientId = row.dataset.clientId;
       const active = row.querySelector('.client-active-toggle').dataset.active === '1';
+      const scopes = [...row.querySelectorAll('.client-scope-toggle')]
+        .filter(el => el.dataset.active === '1')
+        .map(el => ({ operator: el.dataset.operator, country: el.dataset.country || null }));
       btn.textContent = '...';
       btn.disabled = true;
       try {
-        await adminFetch(`/api/clients/${clientId}`, { method: 'PATCH', body: JSON.stringify({ active }) });
+        await adminFetch(`/api/clients/${clientId}`, { method: 'PATCH', body: JSON.stringify({ active, scopes }) });
         btn.textContent = 'Enregistré ✓';
         setTimeout(() => { btn.textContent = 'Enregistrer'; btn.disabled = false; }, 1500);
       } catch (e) {
