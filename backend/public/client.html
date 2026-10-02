@@ -313,13 +313,22 @@ function renderSmallMultiplesChart(containerId, labels, series, opts) {
     const plotH = rowH - padT - padB;
     const yFor = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
 
-    let path = '', penDown = false, lastGood = null;
+    // Un pallino sur CHAQUE point connu, pas seulement le dernier : un point
+    // isolé (aucun voisin connu avant ou après, donc rien à relier) ne
+    // produit qu'un "M x y" sans "L" derrière — un tracé SVG qui ne fait que
+    // "lever le crayon" sans jamais dessiner, donc invisible. Avec un
+    // intervalle de test de 15min sur une fenêtre d'1h/buckets de 5min,
+    // presque tous les points réels sont isolés les uns des autres : sans ce
+    // pallino systématique, seul le tout dernier point de la série (via
+    // l'ancien "lastGood" unique) restait visible, les autres disparaissaient.
+    let path = '', penDown = false;
+    const knownPoints = [];
     s.points.forEach((v, i) => {
       if (v == null) { penDown = false; return; }
       const x = xFor(i), y = yFor(v);
       path += (!penDown ? `M ${x} ${y} ` : `L ${x} ${y} `);
       penDown = true;
-      lastGood = { x, y };
+      knownPoints.push({ x, y });
     });
 
     const gridLines = [yMin, yMax].map(v => {
@@ -349,7 +358,10 @@ function renderSmallMultiplesChart(containerId, labels, series, opts) {
         <svg width="${containerWidth - labelColW}" height="${rowH}" viewBox="0 0 ${containerWidth - labelColW} ${rowH}" preserveAspectRatio="none" style="flex:none;">
           ${gridLines}
           <path d="${path}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          ${lastGood ? `<circle cx="${lastGood.x}" cy="${lastGood.y}" r="3.5" fill="${s.color}" stroke="#fff" stroke-width="1"/>` : ''}
+          ${knownPoints.map((p, idx) => idx === knownPoints.length - 1
+              ? `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="${s.color}" stroke="#fff" stroke-width="1"/>`
+              : `<circle cx="${p.x}" cy="${p.y}" r="2.5" fill="${s.color}"/>`
+            ).join('')}
           ${yTicks}
           ${xTicks}
         </svg>

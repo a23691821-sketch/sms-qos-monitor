@@ -1194,15 +1194,18 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
     const plotH = rowH - padT - padB;
     const yFor = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
 
+    // Un pallino sur CHAQUE point connu, pas seulement le dernier : un point
+    // isolé (sans voisin connu adjacent) ne produit qu'un "M x y" sans "L"
+    // derrière, donc rien à dessiner — invisible sans marqueur explicite.
     let path = '';
     let penDown = false;
-    let lastGood = null;
+    const knownPoints = [];
     s.points.forEach((v, i) => {
       if (v == null) { penDown = false; return; }
       const x = xFor(i), y = yFor(v);
       path += (!penDown ? `M ${x} ${y} ` : `L ${x} ${y} `);
       penDown = true;
-      lastGood = { x, y };
+      knownPoints.push({ x, y });
     });
 
     // Repères 0%/100% (haut et bas) uniquement, pas de ligne médiane — la
@@ -1234,7 +1237,10 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
         <svg width="${containerWidth - labelColW}" height="${rowH}" viewBox="0 0 ${containerWidth - labelColW} ${rowH}" preserveAspectRatio="none" style="flex:none;">
           ${gridLines}
           <path d="${path}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          ${lastGood ? `<circle cx="${lastGood.x}" cy="${lastGood.y}" r="3.5" fill="${s.color}" stroke="#fff" stroke-width="1"/>` : ''}
+          ${knownPoints.map((p, idx) => idx === knownPoints.length - 1
+              ? `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="${s.color}" stroke="#fff" stroke-width="1"/>`
+              : `<circle cx="${p.x}" cy="${p.y}" r="2.5" fill="${s.color}"/>`
+            ).join('')}
           ${yTicks}
           ${xTicks}
         </svg>
