@@ -52,10 +52,21 @@ router.post("/sms-received", (req, res) => {
 // trafic de test en cours. Body attendu: { apiKey }
 router.post("/heartbeat", (req, res) => {
   const { apiKey } = req.body || {};
+  // Log temporaire de debug (device "Free" resté bloqué sur "Inconnu" malgré
+  // une app à jour) : permet de voir si l'appareil appelle bien ce endpoint,
+  // et avec quelle clé, sans exposer la clé complète dans les logs. À
+  // retirer une fois le problème confirmé/résolu.
+  const keyPreview = apiKey ? `${String(apiKey).slice(0, 6)}…(${String(apiKey).length} car.)` : "(absente)";
+  console.log(`[heartbeat] reçu à ${new Date().toISOString()} — clé: ${keyPreview}`);
+
   if (!apiKey) return res.status(400).json({ error: "apiKey requis" });
 
-  const device = db.prepare(`SELECT id FROM devices WHERE api_key = ?`).get(apiKey);
-  if (!device) return res.status(401).json({ error: "apiKey invalide" });
+  const device = db.prepare(`SELECT id, name FROM devices WHERE api_key = ?`).get(apiKey);
+  if (!device) {
+    console.log(`[heartbeat] clé inconnue (${keyPreview}) — aucun appareil ne correspond`);
+    return res.status(401).json({ error: "apiKey invalide" });
+  }
+  console.log(`[heartbeat] appareil reconnu: "${device.name}" (id ${device.id})`);
 
   db.prepare(`UPDATE devices SET last_heartbeat_at = ? WHERE id = ?`).run(new Date().toISOString(), device.id);
   res.json({ ok: true });
