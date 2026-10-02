@@ -1136,23 +1136,31 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
   const yRange = yMax - yMin || 1;
 
   const n = labels.length;
-  // Largeur de panneau calculée à partir de l'espace réellement disponible
-  // (jamais une largeur fixe) : avec une largeur fixe, 3 panneaux dépassaient
-  // la largeur de la carte et passaient à la ligne — la carte ayant une
-  // hauteur fixe (260px), le panneau "en trop" (SFR) se retrouvait coupé,
-  // invisible sous le bas de la carte.
-  const gap = 16;
+  // Rangées empilées (un opérateur = une rangée pleine largeur) plutôt que
+  // des colonnes côte à côte : avec des colonnes, ajouter un 4e opérateur
+  // (Free Mobile) aurait encore rétréci chaque panneau et tassé les labels
+  // de dates jusqu'à les faire se chevaucher. En rangées, chaque graphique
+  // reste développé sur toute la largeur de la carte quel que soit le
+  // nombre d'opérateurs — seule la hauteur de chaque rangée diminue un peu,
+  // et seule la dernière rangée affiche l'axe des dates (partagé, pas besoin
+  // de le répéter à chaque rangée).
+  const rowGap = 4;
+  const labelColW = 78;
   const containerWidth = container.clientWidth || 600;
-  const panelW = Math.max(90, (containerWidth - gap * (opSeries.length - 1)) / opSeries.length);
-  const panelH = container.clientHeight || 220;
-  const padL = 30, padR = 8, padT = 18, padB = 20;
-  const plotW = panelW - padL - padR, plotH = panelH - padT - padB;
+  const containerHeight = container.clientHeight || 220;
+  const rowH = (containerHeight - rowGap * (opSeries.length - 1)) / opSeries.length;
+  const padL = 26, padR = 8, padT = 6;
+  const plotW = containerWidth - labelColW - padL - padR;
   const xFor = (i) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
-  const yFor = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
 
-  const xTickEvery = Math.max(1, Math.ceil(n / 4));
+  const xTickEvery = Math.max(1, Math.ceil(n / 6));
 
-  const panelsHtml = opSeries.map(s => {
+  const rowsHtml = opSeries.map((s, rowIndex) => {
+    const isLast = rowIndex === opSeries.length - 1;
+    const padB = isLast ? 14 : 2;
+    const plotH = rowH - padT - padB;
+    const yFor = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
+
     let path = '';
     let penDown = false;
     let lastGood = null;
@@ -1164,34 +1172,37 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
       lastGood = { x, y };
     });
 
-    const gridLines = [];
-    const yTicks = [];
-    for (let i = 0; i <= 2; i++) {
-      const v = yMin + (yRange * i) / 2;
+    // Repères 0%/100% (haut et bas) uniquement, pas de ligne médiane — la
+    // rangée est trop basse pour en accueillir plus sans surcharger.
+    const gridLines = [yMin, yMax].map(v => {
       const y = yFor(v);
-      gridLines.push(`<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="#26352233" stroke-width="1"/>`);
-      yTicks.push(`<text x="${padL - 5}" y="${y + 3}" text-anchor="end" font-size="9" font-family="IBM Plex Mono" fill="#5B6E69">${Math.round(v)}${suffix}</text>`);
-    }
-    const xTicks = labels
-      .map((lab, i) => (i % xTickEvery === 0 || i === n - 1) ? `<text x="${xFor(i)}" y="${panelH - 6}" text-anchor="middle" font-size="9" font-family="IBM Plex Mono" fill="#5B6E69">${lab}</text>` : '')
-      .join('');
+      return `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="#26352233" stroke-width="1"/>`;
+    }).join('');
+    const yTicks = [yMax, yMin].map(v =>
+      `<text x="${padL - 4}" y="${yFor(v) + 3}" text-anchor="end" font-size="9" font-family="IBM Plex Mono" fill="#5B6E69">${Math.round(v)}${suffix}</text>`
+    ).join('');
+    const xTicks = isLast
+      ? labels.map((lab, i) => (i % xTickEvery === 0 || i === n - 1)
+          ? `<text x="${xFor(i)}" y="${rowH - 2}" text-anchor="middle" font-size="9" font-family="IBM Plex Mono" fill="#5B6E69">${lab}</text>`
+          : '').join('')
+      : '';
 
     return `
-      <div style="flex:none; width:${panelW}px;">
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#26352A;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+      <div style="display:flex; align-items:center; gap:0; height:${rowH}px;">
+        <div style="width:${labelColW}px; flex:none; display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:#26352A; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
           <span style="width:9px;height:9px;border-radius:2px;background:${s.color};display:inline-block;flex:none;"></span>${escapeAttr(s.label)}
         </div>
-        <svg width="100%" height="${panelH - 18}" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="none">
-          ${gridLines.join('')}
+        <svg width="${containerWidth - labelColW}" height="${rowH}" viewBox="0 0 ${containerWidth - labelColW} ${rowH}" preserveAspectRatio="none" style="flex:none;">
+          ${gridLines}
           <path d="${path}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           ${lastGood ? `<circle cx="${lastGood.x}" cy="${lastGood.y}" r="2.5" fill="${s.color}"/>` : ''}
-          ${yTicks.join('')}
+          ${yTicks}
           ${xTicks}
         </svg>
       </div>`;
   }).join('');
 
-  container.innerHTML = `<div style="display:flex;gap:${gap}px;flex-wrap:nowrap;height:100%;">${panelsHtml}</div>`;
+  container.innerHTML = `<div style="display:flex; flex-direction:column; gap:${rowGap}px; height:100%;">${rowsHtml}</div>`;
 
   if (legendId) document.getElementById(legendId).innerHTML = '';
 }
