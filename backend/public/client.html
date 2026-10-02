@@ -321,15 +321,22 @@ function renderSmallMultiplesChart(containerId, labels, series, opts) {
     // presque tous les points réels sont isolés les uns des autres : sans ce
     // pallino systématique, seul le tout dernier point de la série (via
     // l'ancien "lastGood" unique) restait visible, les autres disparaissaient.
-    let path = '', penDown = false;
+    // Relie les points connus ENTRE EUX directement, même quand des buckets
+    // vides les séparent dans la grille : avec un intervalle de test (15min)
+    // plus large que la résolution des buckets (5min), presque chaque test
+    // tombe seul dans son bucket, séparé du suivant par 1-2 buckets vides —
+    // en coupant le trait à chaque bucket vide (comme pour une vraie
+    // donnée manquante), on n'obtenait jamais de ligne du tout, seulement
+    // des points isolés. Ici l'absence de données est normale (le test
+    // suivant n'a simplement pas encore eu lieu), donc on relie directement
+    // un point réel au prochain point réel, sans se soucier des trous entre
+    // les deux.
     const knownPoints = [];
     s.points.forEach((v, i) => {
-      if (v == null) { penDown = false; return; }
-      const x = xFor(i), y = yFor(v);
-      path += (!penDown ? `M ${x} ${y} ` : `L ${x} ${y} `);
-      penDown = true;
-      knownPoints.push({ x, y });
+      if (v == null) return;
+      knownPoints.push({ x: xFor(i), y: yFor(v) });
     });
+    const path = knownPoints.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y} `).join('');
 
     const gridLines = [yMin, yMax].map(v => {
       const y = yFor(v);

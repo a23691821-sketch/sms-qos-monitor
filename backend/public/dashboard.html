@@ -1194,19 +1194,18 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
     const plotH = rowH - padT - padB;
     const yFor = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
 
-    // Un pallino sur CHAQUE point connu, pas seulement le dernier : un point
-    // isolé (sans voisin connu adjacent) ne produit qu'un "M x y" sans "L"
-    // derrière, donc rien à dessiner — invisible sans marqueur explicite.
-    let path = '';
-    let penDown = false;
+    // Relie les points connus ENTRE EUX directement, même quand des buckets
+    // vides les séparent dans la grille (voir vue cliente pour le même
+    // correctif) : un intervalle de test plus large que la résolution des
+    // buckets isole presque chaque test dans son propre bucket — couper le
+    // trait à chaque bucket vide ne laissait jamais apparaître de ligne,
+    // seulement des points isolés.
     const knownPoints = [];
     s.points.forEach((v, i) => {
-      if (v == null) { penDown = false; return; }
-      const x = xFor(i), y = yFor(v);
-      path += (!penDown ? `M ${x} ${y} ` : `L ${x} ${y} `);
-      penDown = true;
-      knownPoints.push({ x, y });
+      if (v == null) return;
+      knownPoints.push({ x: xFor(i), y: yFor(v) });
     });
+    const path = knownPoints.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y} `).join('');
 
     // Repères 0%/100% (haut et bas) uniquement, pas de ligne médiane — la
     // rangée est trop basse pour en accueillir plus sans surcharger.
