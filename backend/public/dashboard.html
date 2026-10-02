@@ -1136,7 +1136,15 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
   const yRange = yMax - yMin || 1;
 
   const n = labels.length;
-  const panelW = 220, panelH = container.clientHeight || 220;
+  // Largeur de panneau calculée à partir de l'espace réellement disponible
+  // (jamais une largeur fixe) : avec une largeur fixe, 3 panneaux dépassaient
+  // la largeur de la carte et passaient à la ligne — la carte ayant une
+  // hauteur fixe (260px), le panneau "en trop" (SFR) se retrouvait coupé,
+  // invisible sous le bas de la carte.
+  const gap = 16;
+  const containerWidth = container.clientWidth || 600;
+  const panelW = Math.max(90, (containerWidth - gap * (opSeries.length - 1)) / opSeries.length);
+  const panelH = container.clientHeight || 220;
   const padL = 30, padR = 8, padT = 18, padB = 20;
   const plotW = panelW - padL - padR, plotH = panelH - padT - padB;
   const xFor = (i) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
@@ -1169,9 +1177,9 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
       .join('');
 
     return `
-      <div style="flex:1 1 ${panelW}px; min-width:160px;">
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#26352A;margin-bottom:2px;">
-          <span style="width:9px;height:9px;border-radius:2px;background:${s.color};display:inline-block;"></span>${escapeAttr(s.label)}
+      <div style="flex:none; width:${panelW}px;">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#26352A;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          <span style="width:9px;height:9px;border-radius:2px;background:${s.color};display:inline-block;flex:none;"></span>${escapeAttr(s.label)}
         </div>
         <svg width="100%" height="${panelH - 18}" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="none">
           ${gridLines.join('')}
@@ -1183,7 +1191,7 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
       </div>`;
   }).join('');
 
-  container.innerHTML = `<div style="display:flex;gap:16px;flex-wrap:wrap;height:100%;">${panelsHtml}</div>`;
+  container.innerHTML = `<div style="display:flex;gap:${gap}px;flex-wrap:nowrap;height:100%;">${panelsHtml}</div>`;
 
   if (legendId) document.getElementById(legendId).innerHTML = '';
 }
