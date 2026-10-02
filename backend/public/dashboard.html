@@ -1111,25 +1111,18 @@ function renderMultiLineChart(containerId, legendId, labels, series, opts) {
   }
 }
 
-// Variante en barres groupées de renderMultiLineChart : une barre par
-// opérateur à chaque instant, au lieu d'une ligne. Préférée pour le taux de
-// délivrance, où la valeur est très souvent identique entre opérateurs
-// (100% la plupart du temps) — en lignes superposées, le dernier tracé
-// masque totalement les autres en dessous (constaté : Bouygues invisible
-// derrière SFR). Des barres côte à côte ne peuvent jamais se masquer entre
-// elles, même à valeurs égales. La ligne "Total" reste en pointillé gris
-// par-dessus, comme repère.
-function renderGroupedBarChart(containerId, legendId, labels, series, opts) {
+// Variante "petits multiples" de renderMultiLineChart : un mini-graphique
+// séparé par opérateur (même axe de temps partagé), plutôt que des lignes
+// superposées sur un seul plan. Choisie pour le taux de délivrance, où la
+// valeur est très souvent identique entre opérateurs (100% la plupart du
+// temps) — superposées, les lignes se masquent totalement entre elles
+// (constaté : Bouygues invisible derrière SFR, quelle que soit la couleur
+// ou le mode de fusion essayés). Des panneaux séparés ne peuvent jamais se
+// masquer puisqu'ils ne partagent plus le même plan de dessin.
+function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) {
   const { suffix = '', min = 0, max = null } = opts || {};
   const container = document.getElementById(containerId);
-  const width = container.clientWidth || 600;
-  const height = container.clientHeight || 220;
-  const padL = 34, padR = 8, padT = 10, padB = 22;
-  const plotW = Math.max(10, width - padL - padR);
-  const plotH = Math.max(10, height - padT - padB);
-
-  const barSeries = series.filter(s => s.key !== '__all__');
-  const totalSeries = series.find(s => s.key === '__all__');
+  const opSeries = series.filter(s => s.key !== '__all__');
 
   const allKnown = series.flatMap(s => s.points.filter(v => v != null));
   if (!allKnown.length) {
@@ -1143,70 +1136,56 @@ function renderGroupedBarChart(containerId, legendId, labels, series, opts) {
   const yRange = yMax - yMin || 1;
 
   const n = labels.length;
-  const groupW = plotW / n;
-  const barGap = 2;
-  const barW = Math.max(2, (groupW - barGap * (barSeries.length + 1)) / barSeries.length);
-  const xForGroup = (i) => padL + i * groupW;
+  const panelW = 220, panelH = container.clientHeight || 220;
+  const padL = 30, padR = 8, padT = 18, padB = 20;
+  const plotW = panelW - padL - padR, plotH = panelH - padT - padB;
+  const xFor = (i) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
   const yFor = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
 
-  const gridLines = [];
-  const yTicks = [];
-  for (let i = 0; i <= 4; i++) {
-    const v = yMin + (yRange * i) / 4;
-    const y = yFor(v);
-    gridLines.push(`<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="#26352233" stroke-width="1"/>`);
-    yTicks.push(`<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" font-family="IBM Plex Mono" fill="#5B6E69">${Math.round(v * 10) / 10}${suffix}</text>`);
-  }
+  const xTickEvery = Math.max(1, Math.ceil(n / 4));
 
-  const xTickEvery = Math.max(1, Math.ceil(n / 6));
-  const xTicks = labels
-    .map((lab, i) => (i % xTickEvery === 0 || i === n - 1) ? `<text x="${xForGroup(i) + groupW / 2}" y="${height - 6}" text-anchor="middle" font-size="10" font-family="IBM Plex Mono" fill="#5B6E69">${lab}</text>` : '')
-    .join('');
+  const panelsHtml = opSeries.map(s => {
+    let path = '';
+    let penDown = false;
+    let lastGood = null;
+    s.points.forEach((v, i) => {
+      if (v == null) { penDown = false; return; }
+      const x = xFor(i), y = yFor(v);
+      path += (!penDown ? `M ${x} ${y} ` : `L ${x} ${y} `);
+      penDown = true;
+      lastGood = { x, y };
+    });
 
-  const barsSvg = labels.map((_, i) => {
-    const groupX = xForGroup(i);
-    return barSeries.map((s, si) => {
-      const v = s.points[i];
-      if (v == null) return '';
-      const x = groupX + barGap + si * (barW + barGap);
-      const yTop = yFor(v);
-      const yBase = yFor(yMin);
-      const h = Math.max(0, yBase - yTop);
-      return `<rect x="${x}" y="${yTop}" width="${barW}" height="${h}" fill="${s.color}" rx="1"/>`;
-    }).join('');
+    const gridLines = [];
+    const yTicks = [];
+    for (let i = 0; i <= 2; i++) {
+      const v = yMin + (yRange * i) / 2;
+      const y = yFor(v);
+      gridLines.push(`<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="#26352233" stroke-width="1"/>`);
+      yTicks.push(`<text x="${padL - 5}" y="${y + 3}" text-anchor="end" font-size="9" font-family="IBM Plex Mono" fill="#5B6E69">${Math.round(v)}${suffix}</text>`);
+    }
+    const xTicks = labels
+      .map((lab, i) => (i % xTickEvery === 0 || i === n - 1) ? `<text x="${xFor(i)}" y="${panelH - 6}" text-anchor="middle" font-size="9" font-family="IBM Plex Mono" fill="#5B6E69">${lab}</text>` : '')
+      .join('');
+
+    return `
+      <div style="flex:1 1 ${panelW}px; min-width:160px;">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#26352A;margin-bottom:2px;">
+          <span style="width:9px;height:9px;border-radius:2px;background:${s.color};display:inline-block;"></span>${escapeAttr(s.label)}
+        </div>
+        <svg width="100%" height="${panelH - 18}" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="none">
+          ${gridLines.join('')}
+          <path d="${path}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          ${lastGood ? `<circle cx="${lastGood.x}" cy="${lastGood.y}" r="2.5" fill="${s.color}"/>` : ''}
+          ${yTicks.join('')}
+          ${xTicks}
+        </svg>
+      </div>`;
   }).join('');
 
-  // Ligne "Total" en repère par-dessus les barres, au centre de chaque groupe.
-  let totalPath = '';
-  if (totalSeries) {
-    let penDown = false;
-    totalSeries.points.forEach((v, i) => {
-      if (v == null) { penDown = false; return; }
-      const x = xForGroup(i) + groupW / 2, y = yFor(v);
-      totalPath += (!penDown ? `M ${x} ${y} ` : `L ${x} ${y} `);
-      penDown = true;
-    });
-  }
-  const totalSvg = totalPath
-    ? `<path d="${totalPath}" fill="none" stroke="${totalSeries.color}" stroke-width="1.5" stroke-dasharray="4 3"/>`
-    : '';
+  container.innerHTML = `<div style="display:flex;gap:16px;flex-wrap:wrap;height:100%;">${panelsHtml}</div>`;
 
-  container.innerHTML = `
-    <svg width="100%" height="100%" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-      ${gridLines.join('')}
-      ${barsSvg}
-      ${totalSvg}
-      ${yTicks.join('')}
-      ${xTicks}
-    </svg>`;
-
-  if (legendId) {
-    const legend = document.getElementById(legendId);
-    legend.innerHTML = series.map(s => `
-      <span class="chart-legend-item">
-        <span class="chart-legend-swatch" style="background:${s.color};${s.key === '__all__' ? 'opacity:.6;' : ''}"></span>${escapeAttr(s.label)}
-      </span>`).join('');
-  }
+  if (legendId) document.getElementById(legendId).innerHTML = '';
 }
 
 function renderLineChart(containerId, labels, points, opts) {
@@ -1570,7 +1549,7 @@ async function loadTimeseries(hours) {
     points: s.points.map(v => v == null ? null : Math.round(v) / 1000),
   }));
 
-  renderGroupedBarChart('deliveryChart', 'deliveryChartLegend', labels, deliverySeries, { suffix: '%', min: 0, max: 100 });
+  renderSmallMultiplesChart('deliveryChart', 'deliveryChartLegend', labels, deliverySeries, { suffix: '%', min: 0, max: 100 });
   renderMultiLineChart('latencyChart', 'latencyChartLegend', labels, latencySeries, { suffix: 's', min: 0 });
   renderMultiLineChart('dlrLatencyChart', 'dlrLatencyChartLegend', labels, dlrLatencySeries, { suffix: 's', min: 0 });
 }
