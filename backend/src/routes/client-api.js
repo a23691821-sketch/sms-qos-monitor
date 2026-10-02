@@ -5,16 +5,28 @@ const { requireClientSession } = require("./../client-auth");
 const router = express.Router();
 
 /*
- * API lecture seule pour la vue cliente. Chaque requête est filtrée aux
- * (opérateur, pays) assignés au client connecté (table
- * client_operator_scopes) et ne sélectionne JAMAIS route_name, provider_id,
- * destination_number, device_name, sender_id, received_from_number ou
- * provider_response — uniquement operator, country, horodatages et
- * statuts/latences. C'est une exigence produit (le client ne doit rien
- * savoir du fournisseur ni du numéro utilisés en interne), pas juste un
- * détail d'implémentation : toute nouvelle colonne ajoutée à routes/
+ * API lecture seule pour la vue cliente. Deux restrictions, toutes deux
+ * volontaires et non négociables côté client :
+ *
+ * 1. Uniquement les envois vers NOS téléphones de test (table test_messages,
+ *    liée à routes — jamais testsms_tests, qui cible des numéros appartenant
+ *    à un fournisseur de test externe type TestSMS.com). Les deux flux ne
+ *    sont d'ailleurs jamais mélangés dans ce fichier : seule la jointure
+ *    test_messages JOIN routes est utilisée.
+ * 2. Uniquement les tests du cycle AUTOMATIQUE planifié (trigger_type =
+ *    'scheduled'), jamais les tests manuels qu'un admin lance à la main
+ *    depuis "Test manuel" pour déboguer — ceux-ci ne reflètent pas la QoS
+ *    réelle sur la durée et n'ont rien à faire dans une vue client.
+ *
+ * Par ailleurs, chaque requête est filtrée aux (opérateur, pays) assignés au
+ * client connecté (table client_operator_scopes) et ne sélectionne JAMAIS
+ * route_name, provider_id, destination_number, device_name, sender_id,
+ * received_from_number ou provider_response — uniquement operator, country,
+ * horodatages et statuts/latences. Toute nouvelle colonne ajoutée à routes/
  * test_messages ne doit être exposée ici qu'après relecture explicite.
  */
+
+const AUTOMATIC_ONLY = `t.trigger_type = 'scheduled'`;
 
 router.use(requireClientSession);
 
@@ -64,7 +76,7 @@ router.get("/stats/timeseries", (req, res) => {
     .prepare(`
       SELECT t.sent_at, t.final_status, t.latency_ms, t.dlr_latency_ms, r.operator
       FROM test_messages t JOIN routes r ON r.id = t.route_id
-      WHERE t.sent_at >= ? AND (${scopeSql})
+      WHERE t.sent_at >= ? AND ${AUTOMATIC_ONLY} AND (${scopeSql})
       ORDER BY t.sent_at
     `)
     .all(since, ...scopeParams);
@@ -113,7 +125,7 @@ router.get("/tests", (req, res) => {
   const { since, until } = req.query;
   const { sql: scopeSql, params: scopeParams } = scopeFilter(req.client.id);
 
-  const conditions = [`(${scopeSql})`];
+  const conditions = [AUTOMATIC_ONLY, `(${scopeSql})`];
   const params = [...scopeParams];
   if (since) { conditions.push("t.sent_at >= ?"); params.push(since); }
   if (until) { conditions.push("t.sent_at <= ?"); params.push(until); }
