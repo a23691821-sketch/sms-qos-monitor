@@ -142,9 +142,9 @@
       </div>
       <div class="topbar-actions">
         <select id="periodSelect">
+          <option value="1">Dernière heure</option>
+          <option value="6">6 dernières heures</option>
           <option value="24" selected>24 dernières heures</option>
-          <option value="72">3 derniers jours</option>
-          <option value="168">7 derniers jours</option>
         </select>
         <button class="btn" id="logoutBtn">Se déconnecter</button>
       </div>
@@ -163,7 +163,21 @@
     </section>
 
     <section>
-      <div class="section-head"><h2>Historique des tests</h2></div>
+      <div class="section-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <h2>Historique des tests</h2>
+        <div style="display:flex;gap:8px;">
+          <select id="historyOperatorSelect">
+            <option value="">Tous les opérateurs</option>
+          </select>
+          <select id="historyPeriodSelect">
+            <option value="1">Dernière heure</option>
+            <option value="6">6 dernières heures</option>
+            <option value="24" selected>24 dernières heures</option>
+            <option value="168">7 derniers jours</option>
+            <option value="720">30 derniers jours</option>
+          </select>
+        </div>
+      </div>
       <div class="table-card">
         <table>
           <thead><tr><th>Date</th><th>Opérateur</th><th>Pays</th><th>Statut</th><th>Latence</th></tr></thead>
@@ -334,8 +348,14 @@ function renderSmallMultiplesChart(containerId, labels, series, opts) {
   container.innerHTML = `<div style="display:flex; flex-direction:column; gap:${rowGap}px;">${rowsHtml}</div>`;
 }
 
+function bucketMinutesFor(hours) {
+  if (hours <= 1) return 5;
+  if (hours <= 6) return 15;
+  return 60;
+}
+
 async function loadTimeseries(hours) {
-  const res = await clientFetch(`/api/client/stats/timeseries?sinceHours=${hours}&bucketMinutes=${hours <= 24 ? 60 : hours <= 72 ? 180 : 360}`);
+  const res = await clientFetch(`/api/client/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutesFor(hours)}`);
   const rows = await res.json();
 
   const times = [...new Set(rows.map(r => r.time))].sort();
@@ -387,9 +407,15 @@ function statusLabel(status) {
   return `<span class="pill ${status}">${map[status] || status}</span>`;
 }
 
-async function loadTests(hours) {
+// L'historique a ses propres contrôles (période jusqu'à 30 jours, filtre
+// opérateur), volontairement indépendants du sélecteur en haut de page qui,
+// lui, ne va pas au-delà de 24h (ce dernier ne sert qu'aux graphiques).
+async function loadTests() {
+  const hours = parseInt(document.getElementById('historyPeriodSelect').value, 10);
+  const operator = document.getElementById('historyOperatorSelect').value;
   const since = new Date(Date.now() - hours * 3600 * 1000).toISOString();
-  const res = await clientFetch(`/api/client/tests?limit=100&since=${encodeURIComponent(since)}`);
+  const operatorParam = operator ? `&operator=${encodeURIComponent(operator)}` : '';
+  const res = await clientFetch(`/api/client/tests?limit=300&since=${encodeURIComponent(since)}${operatorParam}`);
   const rows = await res.json();
   const body = document.getElementById('testsBody');
   if (!rows.length) {
@@ -406,17 +432,28 @@ async function loadTests(hours) {
     </tr>`).join('');
 }
 
+async function populateHistoryOperatorFilter() {
+  const res = await clientFetch('/api/client/scopes');
+  const scopes = await res.json();
+  const operators = [...new Set(scopes.map(s => s.operator))].sort();
+  const sel = document.getElementById('historyOperatorSelect');
+  sel.innerHTML = '<option value="">Tous les opérateurs</option>' +
+    operators.map(op => `<option value="${escapeAttr(op)}">${escapeAttr(op)}</option>`).join('');
+}
+
 async function loadAll() {
   const hours = parseInt(document.getElementById('periodSelect').value, 10);
-  await Promise.all([loadTimeseries(hours), loadTests(hours)]);
+  await Promise.all([loadTimeseries(hours), loadTests()]);
 }
 
 document.getElementById('periodSelect').addEventListener('change', loadAll);
-window.addEventListener('resize', () => { loadAll(); });
+document.getElementById('historyPeriodSelect').addEventListener('change', loadTests);
+document.getElementById('historyOperatorSelect').addEventListener('change', loadTests);
+window.addEventListener('resize', () => { loadTimeseries(parseInt(document.getElementById('periodSelect').value, 10)); });
 
 (async function init() {
   const me = await checkSession();
-  if (me) showApp(me); else showLogin();
+  if (me) { await populateHistoryOperatorFilter(); showApp(me); } else showLogin();
 })();
 </script>
 

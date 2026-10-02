@@ -119,14 +119,20 @@ router.get("/stats/timeseries", (req, res) => {
 
 // Log des tests, strictement limité à operator/country/horodatages/statut —
 // jamais route_name, provider_id, destination_number, device_name,
-// sender_id, received_from_number ni provider_response.
+// sender_id, received_from_number ni provider_response. Volontairement plus
+// "profond" que les graphiques (limite plus haute, et indépendant de la
+// période du dashboard) : un client peut vouloir consulter plusieurs jours
+// d'historique de tests même si les graphiques se limitent à 24h max.
+// `operator` (optionnel) filtre sur un seul opérateur parmi ceux assignés
+// au client (toujours recoupé avec ses scopes, jamais un passe-droit).
 router.get("/tests", (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit || "50", 10), 200);
-  const { since, until } = req.query;
+  const limit = Math.min(parseInt(req.query.limit || "50", 10), 500);
+  const { since, until, operator } = req.query;
   const { sql: scopeSql, params: scopeParams } = scopeFilter(req.client.id);
 
   const conditions = [AUTOMATIC_ONLY, `(${scopeSql})`];
   const params = [...scopeParams];
+  if (operator) { conditions.push("r.operator = ?"); params.push(operator); }
   if (since) { conditions.push("t.sent_at >= ?"); params.push(since); }
   if (until) { conditions.push("t.sent_at <= ?"); params.push(until); }
   params.push(limit);
