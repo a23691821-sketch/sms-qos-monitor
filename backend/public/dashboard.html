@@ -1017,9 +1017,17 @@ let currentDimension = 'country';
 // Palette stable (même opérateur = même couleur d'un rafraîchissement à
 // l'autre) plutôt qu'une couleur recalculée à chaque appel selon l'ordre
 // d'itération, ce qui ferait "sauter" les couleurs entre deux refresh.
-const OPERATOR_COLOR_PALETTE = ['#5B7FBF', '#E08A3C', '#9B59B6', '#3FB88F', '#D65C5C', '#4FB3BF', '#C9A227', '#7D8C6B'];
+const OPERATOR_COLOR_PALETTE = ['#5B7FBF', '#E08A3C', '#9B59B6', '#D65C5C', '#4FB3BF', '#C9A227', '#7D8C6B'];
+// Couleurs fixes pour les opérateurs connus (indépendantes de l'ordre
+// d'apparition) : évite qu'un opérateur hérite d'une couleur trop proche du
+// fond ou de la ligne "Total" en pointillé gris. Bouygues en vert plein à la
+// demande du client (le bleu clair par défaut se distinguait mal).
+const OPERATOR_COLOR_FIXED = {
+  'Bouygues': '#1E9E52',
+};
 const operatorColorMap = new Map();
 function colorForOperator(operator) {
+  if (OPERATOR_COLOR_FIXED[operator]) return OPERATOR_COLOR_FIXED[operator];
   if (!operatorColorMap.has(operator)) {
     operatorColorMap.set(operator, OPERATOR_COLOR_PALETTE[operatorColorMap.size % OPERATOR_COLOR_PALETTE.length]);
   }
