@@ -173,8 +173,6 @@
             <option value="1">Dernière heure</option>
             <option value="6">6 dernières heures</option>
             <option value="24" selected>24 dernières heures</option>
-            <option value="168">7 derniers jours</option>
-            <option value="720">30 derniers jours</option>
           </select>
         </div>
       </div>
@@ -273,6 +271,13 @@ function fmtTimeShort(iso) {
   const d = new Date(iso);
   return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
+// Juste l'heure, sans la date : la période des graphiques ne dépasse jamais
+// 24h, la date n'apporte donc rien et ne fait que rallonger le label au
+// point de le faire chevaucher le suivant sur les petites rangées.
+function fmtHourOnly(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
 
 // Petits multiples horizontaux (une rangée pleine largeur par opérateur) :
 // même technique que le dashboard interne — des lignes superposées sur un
@@ -324,10 +329,16 @@ function renderSmallMultiplesChart(containerId, labels, series, opts) {
     const yTicks = [yMax, yMin].map(v =>
       `<text x="${padL - 4}" y="${yFor(v) + 3}" text-anchor="end" font-size="9" font-family="IBM Plex Mono" fill="#5B6E69">${Math.round(v)}${suffix}</text>`
     ).join('');
+    // Ancrage "start"/"end" sur le premier/dernier repère (au lieu de
+    // "middle" partout) pour que leur texte reste dans les limites du SVG au
+    // lieu de déborder à moitié hors cadre — c'était le cas du dernier label
+    // ("02/10 1" tronqué) sur une rangée pleine largeur.
     const xTicks = isLast
-      ? labels.map((lab, i) => (i % xTickEvery === 0 || i === n - 1)
-          ? `<text x="${xFor(i)}" y="${rowH - 2}" text-anchor="middle" font-size="9" font-family="IBM Plex Mono" fill="#5B6E69">${lab}</text>`
-          : '').join('')
+      ? labels.map((lab, i) => (i % xTickEvery === 0 || i === n - 1) ? { lab, i } : null).filter(Boolean)
+          .map(({ lab, i }) => {
+            const anchor = i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle';
+            return `<text x="${xFor(i)}" y="${rowH - 2}" text-anchor="${anchor}" font-size="9" font-family="IBM Plex Mono" fill="#5B6E69">${lab}</text>`;
+          }).join('')
       : '';
 
     return `
@@ -338,7 +349,7 @@ function renderSmallMultiplesChart(containerId, labels, series, opts) {
         <svg width="${containerWidth - labelColW}" height="${rowH}" viewBox="0 0 ${containerWidth - labelColW} ${rowH}" preserveAspectRatio="none" style="flex:none;">
           ${gridLines}
           <path d="${path}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          ${lastGood ? `<circle cx="${lastGood.x}" cy="${lastGood.y}" r="2.5" fill="${s.color}"/>` : ''}
+          ${lastGood ? `<circle cx="${lastGood.x}" cy="${lastGood.y}" r="3.5" fill="${s.color}" stroke="#fff" stroke-width="1"/>` : ''}
           ${yTicks}
           ${xTicks}
         </svg>
@@ -359,7 +370,7 @@ async function loadTimeseries(hours) {
   const rows = await res.json();
 
   const times = [...new Set(rows.map(r => r.time))].sort();
-  const labels = times.map(t => fmtTimeShort(t));
+  const labels = times.map(t => fmtHourOnly(t));
   const operators = [...new Set(rows.map(r => r.operator))].filter(op => op !== '__all__').sort();
 
   const byKeyAndTime = new Map();
