@@ -22,7 +22,7 @@ function buildTestMessageBody(code, customContent) {
   if (customContent && customContent.trim()) {
     return `${customContent.trim()} ${code}`;
   }
-  return `QOS-TEST ${code} - ne pas repondre`;
+  return `Your code is ${code}`;
 }
 
 // Extrait le code d'un corps de SMS reçu (utilisé côté webhook, robuste aux espaces/casse)
