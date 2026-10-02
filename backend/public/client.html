@@ -84,6 +84,7 @@
   .chart-card {
     background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
     box-shadow: var(--shadow); padding: 18px 20px; min-height: 220px;
+    min-width: 0; overflow: hidden;
   }
   .empty-state { color: var(--text-faint); font-size: 13px; text-align: center; padding: 30px 0; }
 
@@ -309,7 +310,7 @@ function renderSmallMultiplesChart(containerId, labels, series, opts) {
   const containerStyle = getComputedStyle(container);
   const containerPaddingX = parseFloat(containerStyle.paddingLeft || 0) + parseFloat(containerStyle.paddingRight || 0);
   const containerPaddingY = parseFloat(containerStyle.paddingTop || 0) + parseFloat(containerStyle.paddingBottom || 0);
-  const containerWidth = (container.clientWidth || 600) - containerPaddingX;
+  const containerWidth = Math.max(200, (container.clientWidth || 600) - containerPaddingX);
   // Même piège que pour la largeur, version verticale : avec
   // box-sizing:border-box, fixer container.style.height à une valeur H fait
   // de H la hauteur TOTALE de la boîte (padding inclus), donc le contenu

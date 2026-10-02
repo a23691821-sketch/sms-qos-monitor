@@ -163,6 +163,18 @@
     display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 8px;
   }
   @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+  /* Un <section> de grille a par défaut min-width:auto, c.-à-d. qu'il ne
+     peut jamais devenir plus étroit que le contenu qu'il porte. Les petits
+     multiples dessinent des <svg> avec un attribut width en pixels (non
+     élastique en CSS) : si ce calcul se trompe ne serait-ce qu'une fois (ex.
+     mesure prise avant que la grille n'ait fini de se stabiliser), la
+     colonne se fige à cette largeur erronée et ne revient jamais à 1fr —
+     poussant toute la page en scroll horizontal. min-width:0 autorise la
+     colonne à rétrécir normalement, et overflow:hidden sur la carte garantit
+     que même un calcul encore faux reste contenu dans la carte au lieu de
+     déborder sur le reste de la page.
+  */
+  .charts-grid > section { min-width: 0; }
 
   /* Auparavant limité à 68vh avec défilement interne, ce qui masquait la
      majorité des lignes demandées derrière une barre de scroll peu visible.
@@ -220,6 +232,8 @@
     box-shadow: var(--shadow);
     padding: 20px;
     height: 260px;
+    min-width: 0;
+    overflow: hidden;
   }
   .chart-legend {
     display: flex;
@@ -1188,15 +1202,23 @@ function renderSmallMultiplesChart(containerId, legendId, labels, series, opts) 
   const containerStyle = getComputedStyle(container);
   const containerPaddingX = parseFloat(containerStyle.paddingLeft || 0) + parseFloat(containerStyle.paddingRight || 0);
   const containerPaddingY = parseFloat(containerStyle.paddingTop || 0) + parseFloat(containerStyle.paddingBottom || 0);
-  const containerWidth = (container.clientWidth || 600) - containerPaddingX;
+  // Garde-fou : si clientWidth est mesuré à un instant où la carte n'a pas
+  // encore sa taille finale (ex. page cachée via [hidden] au premier rendu),
+  // clientWidth vaut 0 et le calcul donnerait une largeur négative après
+  // soustraction du padding. On impose un minimum raisonnable plutôt que de
+  // laisser un SVG avec un attribut width négatif/invalide, dont la taille
+  // de repli par défaut du navigateur (300px) peut ensuite faire déborder
+  // la colonne de la grille de façon irréversible (voir commentaire overflow
+  // sur .chart-card).
+  const containerWidth = Math.max(200, (container.clientWidth || 600) - containerPaddingX);
   // Même piège que pour la largeur, version verticale : clientHeight inclut
   // aussi le padding CSS (18px/20px de .chart-card), donc utiliser cette
   // valeur telle quelle pour dimensionner les rangées dessinées À
   // L'INTÉRIEUR de cette même carte revient à compter deux fois ce padding
   // et poussait la dernière rangée (et son axe des temps) hors du bas de la
   // carte. On retire le padding vertical réel pour obtenir la hauteur de
-  // contenu réellement disponible.
-  const containerHeight = (container.clientHeight || 220) - containerPaddingY;
+  // contenu réellement disponible (avec le même garde-fou qu'en largeur).
+  const containerHeight = Math.max(100, (container.clientHeight || 220) - containerPaddingY);
   const rowH = (containerHeight - rowGap * (opSeries.length - 1)) / opSeries.length;
   const padL = 26, padR = 8, padT = 6;
   const plotW = containerWidth - labelColW - padL - padR;
