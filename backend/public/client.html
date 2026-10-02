@@ -365,11 +365,34 @@ function bucketMinutesFor(hours) {
   return 60;
 }
 
+// Grille de buckets COMPLETE sur toute la période (pas seulement les
+// instants où un test a eu lieu) : avant ce correctif, l'axe des temps était
+// construit uniquement à partir des horodatages présents dans la réponse,
+// espacés par INDEX plutôt que par temps réel. Résultat : un opérateur avec
+// peu de tests sur la période se retrouvait écrasé contre le bord droit du
+// graphique (tous ses points compressés aux premiers index disponibles) au
+// lieu de rester à sa vraie position chronologique, avec un vrai "trou" à
+// gauche quand aucun test n'a encore eu lieu dans cette tranche horaire.
+// Le calcul de bucket (floor sur l'epoch) est identique à celui du serveur
+// (voir /api/client/stats/timeseries), donc les horodatages générés ici
+// correspondent exactement aux clés "time" renvoyées par l'API.
+function buildBucketGrid(hours, bucketMinutes) {
+  const bucketMs = bucketMinutes * 60000;
+  const now = Date.now();
+  const since = now - hours * 3600 * 1000;
+  const first = Math.ceil(since / bucketMs) * bucketMs;
+  const last = Math.floor(now / bucketMs) * bucketMs;
+  const out = [];
+  for (let t = first; t <= last; t += bucketMs) out.push(new Date(t).toISOString());
+  return out;
+}
+
 async function loadTimeseries(hours) {
-  const res = await clientFetch(`/api/client/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutesFor(hours)}`);
+  const bucketMinutes = bucketMinutesFor(hours);
+  const res = await clientFetch(`/api/client/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutes}`);
   const rows = await res.json();
 
-  const times = [...new Set(rows.map(r => r.time))].sort();
+  const times = buildBucketGrid(hours, bucketMinutes);
   const labels = times.map(t => fmtHourOnly(t));
   const operators = [...new Set(rows.map(r => r.operator))].filter(op => op !== '__all__').sort();
 
