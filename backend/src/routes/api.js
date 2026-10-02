@@ -4,6 +4,7 @@ const db = require("./../db");
 const { runTestForRoute, isPaused, setPaused } = require("./../scheduler");
 const { loadProviderConfigs } = require("./../providers");
 const { buildTestMessageBody } = require("./../idgen");
+const { hashPassword } = require("./../password");
 
 const router = express.Router();
 
@@ -547,6 +548,104 @@ router.get("/stats/recent", (req, res) => {
     `)
     .all(...params);
   res.json(rows);
+});
+
+// ---------- Clients (vue externe en lecture seule) ----------
+// Gestion admin des comptes clients et de ce qu'ils peuvent voir (couples
+// opérateur/pays). Le mot de passe en clair ne transite que sur ces deux
+// endpoints (création/reset) et n'est jamais stocké : seuls le hash + le sel
+// le sont (voir password.js).
+
+router.get("/clients", requireAdmin, (req, res) => {
+  const clients = db.prepare(`SELECT id, name, username, active, created_at FROM clients ORDER BY name`).all();
+  const scopes = db.prepare(`SELECT client_id, operator, country FROM client_operator_scopes ORDER BY operator`).all();
+  const scopesByClient = new Map();
+  for (const s of scopes) {
+    if (!scopesByClient.has(s.client_id)) scopesByClient.set(s.client_id, []);
+    scopesByClient.get(s.client_id).push({ operator: s.operator, country: s.country });
+  }
+  res.json(clients.map((c) => ({ ...c, scopes: scopesByClient.get(c.id) || [] })));
+});
+
+// Couples (opérateur, pays) distincts vus dans les routes existantes, pour
+// peupler le sélecteur d'assignation côté admin sans ressaisie manuelle.
+router.get("/clients/available-operators", requireAdmin, (req, res) => {
+  const rows = db
+    .prepare(`SELECT DISTINCT operator, country FROM routes WHERE operator IS NOT NULL AND operator != '' ORDER BY operator, country`)
+    .all();
+  res.json(rows);
+});
+
+router.post("/clients", requireAdmin, (req, res) => {
+  const { name, username, password, scopes } = req.body || {};
+  if (!name || !username || !password) {
+    return res.status(400).json({ error: "name, username et password sont requis" });
+  }
+  const { hash, salt } = hashPassword(password);
+  try {
+    const { lastInsertRowid: clientId } = db
+      .prepare(`INSERT INTO clients (name, username, password_hash, password_salt) VALUES (?, ?, ?, ?)`)
+      .run(name.trim(), username.trim(), hash, salt);
+
+    const insertScope = db.prepare(`INSERT INTO client_operator_scopes (client_id, operator, country) VALUES (?, ?, ?)`);
+    (Array.isArray(scopes) ? scopes : []).forEach((s) => {
+      if (s && s.operator) insertScope.run(clientId, s.operator, s.country || null);
+    });
+
+    res.json({ id: clientId });
+  } catch (err) {
+    if (String(err.message || "").includes("UNIQUE")) {
+      return res.status(409).json({ error: "ce nom d'utilisateur existe déjà" });
+    }
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+// Remplace entièrement le nom + les scopes d'un client (l'admin renvoie la
+// liste complète à chaque sauvegarde depuis le dashboard, plus simple que
+// des opérations incrémentales côté UI). Le mot de passe se change à part
+// via /clients/:id/password, jamais ici.
+router.patch("/clients/:id", requireAdmin, (req, res) => {
+  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(req.params.id);
+  if (!client) return res.status(404).json({ error: "client introuvable" });
+
+  const { name, active, scopes } = req.body || {};
+  db.prepare(`
+    UPDATE clients SET
+      name = COALESCE(?, name),
+      active = COALESCE(?, active)
+    WHERE id = ?
+  `).run(name || null, active === undefined ? null : (active ? 1 : 0), req.params.id);
+
+  if (Array.isArray(scopes)) {
+    const tx = db.transaction((rows) => {
+      db.prepare(`DELETE FROM client_operator_scopes WHERE client_id = ?`).run(req.params.id);
+      const insertScope = db.prepare(`INSERT INTO client_operator_scopes (client_id, operator, country) VALUES (?, ?, ?)`);
+      rows.forEach((s) => { if (s && s.operator) insertScope.run(req.params.id, s.operator, s.country || null); });
+    });
+    tx(scopes);
+  }
+
+  res.json({ ok: true });
+});
+
+router.post("/clients/:id/password", requireAdmin, (req, res) => {
+  const { password } = req.body || {};
+  if (!password || password.length < 6) {
+    return res.status(400).json({ error: "mot de passe requis (6 caractères minimum)" });
+  }
+  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(req.params.id);
+  if (!client) return res.status(404).json({ error: "client introuvable" });
+
+  const { hash, salt } = hashPassword(password);
+  db.prepare(`UPDATE clients SET password_hash = ?, password_salt = ? WHERE id = ?`).run(hash, salt, req.params.id);
+  res.json({ ok: true });
+});
+
+router.delete("/clients/:id", requireAdmin, (req, res) => {
+  db.prepare(`DELETE FROM client_operator_scopes WHERE client_id = ?`).run(req.params.id);
+  db.prepare(`DELETE FROM clients WHERE id = ?`).run(req.params.id);
+  res.json({ ok: true });
 });
 
 module.exports = router;

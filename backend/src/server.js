@@ -6,8 +6,10 @@ const path = require("path");
 const webhookRoutes = require("./routes/webhook");
 const apiRoutes = require("./routes/api");
 const testsmsApiRoutes = require("./routes/testsms-api");
+const clientApiRoutes = require("./routes/client-api");
 const { startScheduler } = require("./scheduler");
 const { requireSession, handleLogin, handleLogout } = require("./session-auth");
+const { handleClientLogin, handleClientLogout } = require("./client-auth");
 
 const app = express();
 app.use(cors());
@@ -32,7 +34,16 @@ app.get("/dl-8f3k1q/sms-qos-monitor.apk", (req, res) => {
   res.download(path.join(__dirname, "..", "downloads", "sms-qos-monitor.apk"), "sms-qos-monitor.apk");
 });
 
-// Tout ce qui est déclaré après cette ligne exige un cookie de session valide
+// Vue cliente : auth + API + page statique montées ICI, AVANT le middleware
+// de session admin ci-dessous, puisqu'elles ont leur propre authentification
+// (cookie séparé, voir client-auth.js) — un client ne doit jamais avoir
+// besoin d'une session admin pour atteindre sa propre page.
+app.post("/api/client/login", handleClientLogin);
+app.post("/api/client/logout", handleClientLogout);
+app.use("/api/client", clientApiRoutes);
+app.get("/client.html", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "client.html")));
+
+// Tout ce qui est déclaré après cette ligne exige un cookie de session admin valide
 app.use(requireSession);
 
 app.use(express.static(path.join(__dirname, "..", "public")));

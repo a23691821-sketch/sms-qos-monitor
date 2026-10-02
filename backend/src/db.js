@@ -211,4 +211,32 @@ if (!testsmsTestsColumns.includes("batch_id")) {
   db.exec("ALTER TABLE testsms_tests ADD COLUMN batch_id TEXT");
 }
 
+// Vue cliente (externe) : chaque client a son propre identifiant/mot de
+// passe et ne voit que les données des opérateurs/pays qui lui sont
+// explicitement assignés — jamais les routes, fournisseurs ou numéros de
+// destination sous-jacents (voir client-api.js, qui ne sélectionne jamais
+// ces colonnes-là dans ses requêtes).
+db.exec(`
+CREATE TABLE IF NOT EXISTS clients (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  password_salt TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- country NULL = l'opérateur est visible pour ce client quel que soit le
+-- pays (utile si le nom d'opérateur ne se recoupe pas entre pays dans ton
+-- usage ; sinon assigne des lignes (operator, country) précises).
+CREATE TABLE IF NOT EXISTS client_operator_scopes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  operator TEXT NOT NULL,
+  country TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_client_scopes_client ON client_operator_scopes(client_id);
+`);
+
 module.exports = db;

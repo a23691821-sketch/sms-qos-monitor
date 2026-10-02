@@ -923,6 +923,39 @@
             <div class="apikey-box" id="newDeviceKeyBox"></div>
           </div>
 
+          <div class="config-card">
+            <div class="section-head" style="margin-bottom:4px;"><h2>Clients (vue externe)</h2></div>
+            <p style="font-size:12px;color:var(--text-dim);margin:0 0 14px;">
+              Chaque client a son propre identifiant/mot de passe et accède à
+              <code class="mono" id="clientPortalUrl">/client.html</code> — il ne voit que
+              le taux de délivrance, la latence et l'historique des opérateurs/pays qui lui
+              sont assignés ci-dessous, jamais les routes, fournisseurs ou numéros internes.
+            </p>
+            <div class="table-card">
+              <table>
+                <thead>
+                  <tr><th>Nom</th><th>Identifiant</th><th>Opérateurs visibles</th><th>Statut</th><th colspan="3"></th></tr>
+                </thead>
+                <tbody id="adminClientsBody"></tbody>
+              </table>
+            </div>
+
+            <div class="section-head" style="margin-top:20px; margin-bottom:0;"><h2 style="font-size:13px;">+ Nouveau client</h2></div>
+            <div class="form-grid">
+              <div><label>Nom (raison sociale)</label><input id="newClientName" placeholder="Client Acme" /></div>
+              <div><label>Identifiant de connexion</label><input id="newClientUsername" placeholder="acme" /></div>
+              <div><label>Mot de passe</label><input id="newClientPassword" type="text" placeholder="min. 6 caractères" /></div>
+            </div>
+            <div style="margin-top:12px;">
+              <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:6px;">Opérateurs/pays visibles par ce client</label>
+              <div id="newClientScopes" style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;"></div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-sm btn-primary" id="createClientBtn">Créer le client</button>
+              <span id="createClientMsg" class="config-msg"></span>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -1690,16 +1723,154 @@ async function tryLoadConfigSection() {
 }
 
 async function loadConfigSection() {
-  const [providers, devices, routes] = await Promise.all([
+  const [providers, devices, routes, clients, availableOperators] = await Promise.all([
     adminFetch('/api/providers').then(r => r.json()),
     adminFetch('/api/devices').then(r => r.json()),
     adminFetch('/api/routes').then(r => r.json()),
+    adminFetch('/api/clients').then(r => r.json()),
+    adminFetch('/api/clients/available-operators').then(r => r.json()),
   ]);
   renderAdminDevices(devices);
   renderAdminRoutes(routes, devices);
   renderProviderOptions(providers);
   renderDeviceOptions(devices);
+  renderClientScopeCheckboxes(availableOperators);
+  renderAdminClients(clients);
+  document.getElementById('clientPortalUrl').textContent = location.origin + '/client.html';
 }
+
+function scopeKey(s) { return `${s.operator}||${s.country || ''}`; }
+
+function renderClientScopeCheckboxes(availableOperators) {
+  const box = document.getElementById('newClientScopes');
+  if (!availableOperators.length) {
+    box.innerHTML = `<span style="color:var(--text-faint);">Aucune route avec opérateur renseigné pour l'instant.</span>`;
+    return;
+  }
+  box.innerHTML = availableOperators.map(o => `
+    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+      <input type="checkbox" class="client-scope-checkbox" value="${escapeAttr(scopeKey(o))}" data-operator="${escapeAttr(o.operator)}" data-country="${escapeAttr(o.country || '')}" />
+      ${escapeAttr(o.operator)}${o.country ? ' (' + escapeAttr(o.country) + ')' : ''}
+    </label>`).join('');
+}
+
+function renderAdminClients(clients) {
+  const body = document.getElementById('adminClientsBody');
+  if (!clients.length) {
+    body.innerHTML = `<tr><td colspan="7" class="empty-state">Aucun client. Crée-en un ci-dessous.</td></tr>`;
+    return;
+  }
+  body.innerHTML = clients.map(c => `
+    <tr data-client-id="${c.id}">
+      <td>${escapeAttr(c.name)}</td>
+      <td class="mono">${escapeAttr(c.username)}</td>
+      <td>${c.scopes.length ? c.scopes.map(s => `<span class="toggle-pill" style="margin:1px;">${escapeAttr(s.operator)}${s.country ? ' (' + escapeAttr(s.country) + ')' : ''}</span>`).join('') : '<span style="color:var(--text-faint);">aucun</span>'}</td>
+      <td><span class="toggle-pill ${c.active ? 'on' : 'off'} client-active-toggle" data-active="${c.active ? 1 : 0}">${c.active ? 'Actif' : 'Désactivé'}</span></td>
+      <td><button class="btn btn-sm client-resetpw-btn">Changer le mot de passe</button></td>
+      <td><button class="btn btn-sm client-save-btn">Enregistrer</button></td>
+      <td><button class="btn btn-sm client-delete-btn">Supprimer</button></td>
+    </tr>`).join('');
+
+  body.querySelectorAll('.client-active-toggle').forEach(el => {
+    el.addEventListener('click', () => {
+      const isOn = el.dataset.active === '1';
+      el.dataset.active = isOn ? '0' : '1';
+      el.textContent = isOn ? 'Désactivé' : 'Actif';
+      el.classList.toggle('on', !isOn);
+      el.classList.toggle('off', isOn);
+    });
+  });
+
+  body.querySelectorAll('.client-resetpw-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const clientId = row.dataset.clientId;
+      const newPassword = prompt('Nouveau mot de passe pour ce client (min. 6 caractères) :');
+      if (!newPassword) return;
+      btn.textContent = '...';
+      btn.disabled = true;
+      try {
+        await adminFetch(`/api/clients/${clientId}/password`, { method: 'POST', body: JSON.stringify({ password: newPassword }) });
+        btn.textContent = 'Changé ✓';
+        setTimeout(() => { btn.textContent = 'Changer le mot de passe'; btn.disabled = false; }, 1500);
+      } catch (e) {
+        btn.textContent = 'Erreur';
+        btn.disabled = false;
+      }
+    });
+  });
+
+  body.querySelectorAll('.client-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const clientId = row.dataset.clientId;
+      if (!confirm('Supprimer ce client ? Il perdra immédiatement l\'accès à sa vue.')) return;
+      btn.disabled = true;
+      try {
+        await adminFetch(`/api/clients/${clientId}`, { method: 'DELETE' });
+        await loadConfigSection();
+      } catch (e) {
+        btn.disabled = false;
+      }
+    });
+  });
+
+  body.querySelectorAll('.client-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const clientId = row.dataset.clientId;
+      const active = row.querySelector('.client-active-toggle').dataset.active === '1';
+      btn.textContent = '...';
+      btn.disabled = true;
+      try {
+        await adminFetch(`/api/clients/${clientId}`, { method: 'PATCH', body: JSON.stringify({ active }) });
+        btn.textContent = 'Enregistré ✓';
+        setTimeout(() => { btn.textContent = 'Enregistrer'; btn.disabled = false; }, 1500);
+      } catch (e) {
+        btn.textContent = 'Erreur';
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+document.getElementById('createClientBtn').addEventListener('click', async () => {
+  const msg = document.getElementById('createClientMsg');
+  const name = document.getElementById('newClientName').value.trim();
+  const username = document.getElementById('newClientUsername').value.trim();
+  const password = document.getElementById('newClientPassword').value;
+  const scopes = [...document.querySelectorAll('.client-scope-checkbox:checked')].map(cb => ({
+    operator: cb.dataset.operator, country: cb.dataset.country || null,
+  }));
+
+  if (!name || !username || !password) {
+    msg.textContent = 'Nom, identifiant et mot de passe sont requis.';
+    msg.className = 'config-msg err';
+    return;
+  }
+  if (password.length < 6) {
+    msg.textContent = 'Le mot de passe doit faire au moins 6 caractères.';
+    msg.className = 'config-msg err';
+    return;
+  }
+
+  msg.textContent = 'Création...';
+  msg.className = 'config-msg';
+  try {
+    await adminFetch('/api/clients', { method: 'POST', body: JSON.stringify({ name, username, password, scopes }) });
+    document.getElementById('newClientName').value = '';
+    document.getElementById('newClientUsername').value = '';
+    document.getElementById('newClientPassword').value = '';
+    msg.textContent = 'Client créé ✓';
+    msg.className = 'config-msg ok';
+    await loadConfigSection();
+  } catch (e) {
+    if (e.message !== 'admin_unauthorized') {
+      msg.textContent = "Erreur lors de la création (identifiant déjà pris ?).";
+      msg.className = 'config-msg err';
+    }
+  }
+});
 
 function renderProviderOptions(providers) {
   const sel = document.getElementById('newRouteProvider');
