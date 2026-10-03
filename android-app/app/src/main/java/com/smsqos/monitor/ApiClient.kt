@@ -53,12 +53,19 @@ object ApiClient {
      * Envoie un SMS reçu au backend. Réessaie une fois en cas d'échec réseau
      * (les tests étant horodatés côté serveur à l'envoi, un léger délai de retry
      * ne casse pas la mesure de latence puisqu'on envoie receivedAt explicitement).
+     *
+     * `onDone` est appelé exactement une fois, que l'envoi ait fini par
+     * réussir ou échoué définitivement (retries épuisés) — jamais pendant un
+     * retry intermédiaire. Appelé depuis SmsReceiver (avec goAsync()) pour
+     * savoir quand relâcher le PendingResult : tant qu'on ne l'a pas appelé,
+     * Android garde le process vivant pour laisser la requête se terminer.
      */
-    fun reportReceivedSms(context: Context, from: String?, body: String, receivedAtIso: String) {
+    fun reportReceivedSms(context: Context, from: String?, body: String, receivedAtIso: String, onDone: () -> Unit = {}) {
         val backendUrl = getBackendUrl(context)
         val apiKey = getApiKey(context)
         if (backendUrl.isBlank() || apiKey.isBlank()) {
             Log.w(TAG, "Backend non configuré, SMS ignoré")
+            onDone()
             return
         }
 
@@ -69,7 +76,7 @@ object ApiClient {
             put("receivedAt", receivedAtIso)
         }
 
-        sendOnce("$backendUrl/api/webhook/sms-received", json, retriesLeft = 2)
+        sendOnce("$backendUrl/api/webhook/sms-received", json, retriesLeft = 2, onDone = onDone)
     }
 
     /**
@@ -106,7 +113,7 @@ object ApiClient {
         }
     }
 
-    private fun sendOnce(url: String, json: JSONObject, retriesLeft: Int) {
+    private fun sendOnce(url: String, json: JSONObject, retriesLeft: Int, onDone: () -> Unit = {}) {
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val request = Request.Builder()
             .url(url)
@@ -117,13 +124,16 @@ object ApiClient {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e(TAG, "Echec envoi webhook: ${e.message}")
                 if (retriesLeft > 0) {
-                    sendOnce(url, json, retriesLeft - 1)
+                    sendOnce(url, json, retriesLeft - 1, onDone)
+                } else {
+                    onDone()
                 }
             }
 
             override fun onResponse(call: Call, response: okhttp3.Response) {
                 Log.i(TAG, "Webhook envoyé, statut ${response.code}")
                 response.close()
+                onDone()
             }
         })
     }

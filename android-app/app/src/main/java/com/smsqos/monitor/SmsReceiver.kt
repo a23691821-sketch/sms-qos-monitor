@@ -30,7 +30,26 @@ class SmsReceiver : BroadcastReceiver() {
 
         Log.i("SmsQosMonitor", "SMS reçu de $from: $fullBody")
 
-        ApiClient.reportReceivedSms(context, from, fullBody, receivedAtIso)
+        // ApiClient.reportReceivedSms envoie l'appel réseau de façon
+        // ASYNCHRONE (OkHttp.enqueue) sur un thread séparé. Un
+        // BroadcastReceiver système n'est garanti vivant que pendant
+        // l'exécution d'onReceive() : dès que cette méthode retourne (donc
+        // immédiatement, puisque enqueue() ne bloque pas), Android peut tuer
+        // le process de l'app à tout moment — y compris avant que la requête
+        // asynchrone n'ait eu le temps de partir ou d'aboutir. Le SMS arrive
+        // bien sur le téléphone (le fournisseur confirme la livraison), mais
+        // l'app est tuée avant de pouvoir le signaler au serveur. Résultat :
+        // un taux de succès qui dépend du hasard (écran allumé, app utilisée
+        // récemment...) au lieu d'être fiable — exactement le symptôme
+        // observé sur le device Free Mobile (~25% au lieu de 100%).
+        //
+        // goAsync() demande explicitement à Android de garder le process en
+        // vie jusqu'à l'appel à pendingResult.finish(), le temps que la
+        // requête réseau se termine vraiment.
+        val pendingResult = goAsync()
+        ApiClient.reportReceivedSms(context, from, fullBody, receivedAtIso) {
+            pendingResult.finish()
+        }
     }
 
     private fun isoNow(): String {
