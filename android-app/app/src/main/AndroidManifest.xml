@@ -8,6 +8,14 @@
     <!-- Nécessaire pour relancer le heartbeat WorkManager après un redémarrage
          du téléphone sans attendre que quelqu'un rouvre l'app à la main. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Pour pouvoir demander explicitement à l'utilisateur d'exempter l'app
+         de l'optimisation de batterie standard d'Android (sans quoi le
+         système peut suspendre le process entre deux SMS, empêchant aussi
+         bien SmsReceiver que HeartbeatWorker de tourner). Ne couvre pas les
+         gestionnaires "autostart" propriétaires (MIUI, ColorOS, Vivo...),
+         qui n'ont pas d'API publique et doivent être désactivés à la main
+         dans les réglages du téléphone. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:allowBackup="false"
