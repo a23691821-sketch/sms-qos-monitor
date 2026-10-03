@@ -127,6 +127,7 @@ class MainActivity : AppCompatActivity() {
         val permGranted = hasSmsPermissions()
         val batteryExempt = isIgnoringBatteryOptimizations()
         statusText.text = buildString {
+            append("Version app : ${BuildConfig.VERSION_NAME}\n\n")
             append(if (configured) "✓ Backend configuré\n" else "✗ Backend non configuré\n")
             append(if (permGranted) "✓ Permissions SMS accordées\n" else "✗ Permissions SMS manquantes\n")
             append(if (batteryExempt) "✓ Exempté de l'optimisation batterie" else "✗ PAS exempté de l'optimisation batterie")
