@@ -30,26 +30,28 @@ class SmsReceiver : BroadcastReceiver() {
 
         Log.i("SmsQosMonitor", "SMS reçu de $from: $fullBody")
 
-        // ApiClient.reportReceivedSms envoie l'appel réseau de façon
-        // ASYNCHRONE (OkHttp.enqueue) sur un thread séparé. Un
-        // BroadcastReceiver système n'est garanti vivant que pendant
-        // l'exécution d'onReceive() : dès que cette méthode retourne (donc
-        // immédiatement, puisque enqueue() ne bloque pas), Android peut tuer
-        // le process de l'app à tout moment — y compris avant que la requête
-        // asynchrone n'ait eu le temps de partir ou d'aboutir. Le SMS arrive
-        // bien sur le téléphone (le fournisseur confirme la livraison), mais
-        // l'app est tuée avant de pouvoir le signaler au serveur. Résultat :
-        // un taux de succès qui dépend du hasard (écran allumé, app utilisée
-        // récemment...) au lieu d'être fiable — exactement le symptôme
-        // observé sur le device Free Mobile (~25% au lieu de 100%).
+        // Historique de ce bout de code (pour ne pas réintroduire les mêmes
+        // bugs) :
+        // 1) Appel réseau direct, asynchrone (OkHttp.enqueue), sans rien
+        //    pour garder le process vivant -> le SMS arrivait bien (le
+        //    fournisseur confirmait la livraison) mais Android tuait le
+        //    process avant que la requête n'aboutisse, dans un cas sur
+        //    quatre environ (device Free Mobile).
+        // 2) goAsync() + appel réseau avec retries -> corrige le cas 1, mais
+        //    le budget de temps accordé par goAsync() est court (quelques
+        //    secondes), et le dépasser (ce qui arrivait dès qu'un retry
+        //    réseau était nécessaire, timeouts de 10s chacun) rendait
+        //    Android plus agressif envers l'app ensuite, cassant carrément
+        //    la réception des SMS suivants (observé sur Orange ET Free
+        //    juste après le déploiement de ce correctif).
         //
-        // goAsync() demande explicitement à Android de garder le process en
-        // vie jusqu'à l'appel à pendingResult.finish(), le temps que la
-        // requête réseau se termine vraiment.
-        val pendingResult = goAsync()
-        ApiClient.reportReceivedSms(context, from, fullBody, receivedAtIso) {
-            pendingResult.finish()
-        }
+        // Déléguer immédiatement à WorkManager (SmsReportWorker) résout les
+        // deux : l'enqueue est une simple écriture en base, quasi instantanée
+        // (donc jamais de risque de dépasser un budget de temps), et le
+        // travail persisté survit à la mort du process — WorkManager se
+        // charge lui-même de l'exécuter (avec retries/backoff) dès que
+        // possible, indépendamment du cycle de vie du receiver.
+        SmsReportWorker.enqueue(context, from, fullBody, receivedAtIso)
     }
 
     private fun isoNow(): String {

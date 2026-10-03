@@ -3,8 +3,6 @@ package com.smsqos.monitor
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -50,23 +48,25 @@ object ApiClient {
         getBackendUrl(context).isNotBlank() && getApiKey(context).isNotBlank()
 
     /**
-     * Envoie un SMS reçu au backend. Réessaie une fois en cas d'échec réseau
-     * (les tests étant horodatés côté serveur à l'envoi, un léger délai de retry
-     * ne casse pas la mesure de latence puisqu'on envoie receivedAt explicitement).
+     * Envoie un SMS reçu au backend. Version SYNCHRONE (bloquante), appelée
+     * depuis SmsReportWorker — déjà sur un thread d'arrière-plan dédié géré
+     * par WorkManager, qui gère lui-même la persistance et les retries (voir
+     * SmsReportWorker). Même construction que sendHeartbeatSync ci-dessous.
      *
-     * `onDone` est appelé exactement une fois, que l'envoi ait fini par
-     * réussir ou échoué définitivement (retries épuisés) — jamais pendant un
-     * retry intermédiaire. Appelé depuis SmsReceiver (avec goAsync()) pour
-     * savoir quand relâcher le PendingResult : tant qu'on ne l'a pas appelé,
-     * Android garde le process vivant pour laisser la requête se terminer.
+     * Ancienne version : appel direct, asynchrone (OkHttp.enqueue), depuis
+     * SmsReceiver.onReceive() avec goAsync() pour garder le process vivant.
+     * Retirée : le budget de temps accordé par goAsync() est court, et le
+     * dépasser (ce qui arrivait dès qu'un retry réseau était nécessaire,
+     * avec des timeouts de 10s chacun) pouvait rendre Android plus agressif
+     * envers l'app ensuite — cassant la réception des SMS suivants. Voir
+     * SmsReportWorker pour le détail et la nouvelle approche.
      */
-    fun reportReceivedSms(context: Context, from: String?, body: String, receivedAtIso: String, onDone: () -> Unit = {}) {
+    fun reportReceivedSmsSync(context: Context, from: String?, body: String, receivedAtIso: String): Boolean {
         val backendUrl = getBackendUrl(context)
         val apiKey = getApiKey(context)
         if (backendUrl.isBlank() || apiKey.isBlank()) {
             Log.w(TAG, "Backend non configuré, SMS ignoré")
-            onDone()
-            return
+            return false
         }
 
         val json = JSONObject().apply {
@@ -75,8 +75,21 @@ object ApiClient {
             put("body", body)
             put("receivedAt", receivedAtIso)
         }
+        val mediaType = "application/json; charset=utf-8".toMediaType()
+        val request = Request.Builder()
+            .url("$backendUrl/api/webhook/sms-received")
+            .post(json.toString().toRequestBody(mediaType))
+            .build()
 
-        sendOnce("$backendUrl/api/webhook/sms-received", json, retriesLeft = 2, onDone = onDone)
+        return try {
+            client.newCall(request).execute().use { response ->
+                Log.i(TAG, "Webhook envoyé, statut ${response.code}")
+                response.isSuccessful
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Echec envoi webhook: ${e.message}")
+            false
+        }
     }
 
     /**
@@ -113,28 +126,4 @@ object ApiClient {
         }
     }
 
-    private fun sendOnce(url: String, json: JSONObject, retriesLeft: Int, onDone: () -> Unit = {}) {
-        val mediaType = "application/json; charset=utf-8".toMediaType()
-        val request = Request.Builder()
-            .url(url)
-            .post(json.toString().toRequestBody(mediaType))
-            .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                Log.e(TAG, "Echec envoi webhook: ${e.message}")
-                if (retriesLeft > 0) {
-                    sendOnce(url, json, retriesLeft - 1, onDone)
-                } else {
-                    onDone()
-                }
-            }
-
-            override fun onResponse(call: Call, response: okhttp3.Response) {
-                Log.i(TAG, "Webhook envoyé, statut ${response.code}")
-                response.close()
-                onDone()
-            }
-        })
-    }
 }
