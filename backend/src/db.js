@@ -239,4 +239,25 @@ CREATE TABLE IF NOT EXISTS client_operator_scopes (
 CREATE INDEX IF NOT EXISTS idx_client_scopes_client ON client_operator_scopes(client_id);
 `);
 
+// Tarifs unitaires des SMS de test, par pays (page "Coûts" du dashboard).
+// Saisis à la main : unit_cost NULL = tarif pas encore renseigné (les SMS de
+// ce pays sont comptés mais leur coût reste "inconnu" tant que ce n'est pas
+// rempli). Le coût affiché est calculé à la lecture (nombre de SMS x tarif
+// ACTUEL), il n'est pas figé à l'envoi : modifier un tarif recalcule aussi
+// le passé. country_code = code ISO 3166-1 alpha-2 en majuscules.
+db.exec(`
+CREATE TABLE IF NOT EXISTS sms_costs (
+  country_code TEXT PRIMARY KEY,
+  country_name TEXT NOT NULL,
+  unit_cost REAL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+`);
+// Pré-remplissage seulement à la toute première création de la table : si
+// un pays est supprimé ensuite, il ne doit pas réapparaître au redémarrage.
+if (db.prepare(`SELECT COUNT(*) AS n FROM sms_costs`).get().n === 0) {
+  const seedCost = db.prepare(`INSERT INTO sms_costs (country_code, country_name, unit_cost) VALUES (?, ?, NULL)`);
+  [["FR", "France"], ["IT", "Italie"], ["DE", "Allemagne"], ["ES", "Espagne"]].forEach(([code, name]) => seedCost.run(code, name));
+}
+
 module.exports = db;

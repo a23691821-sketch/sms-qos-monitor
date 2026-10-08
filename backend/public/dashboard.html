@@ -502,6 +502,9 @@
       <button class="nav-item" data-page="testsms" data-title="Tests fournisseurs (TestSMS)">
         <span class="nav-icon">⇄</span>Tests fournisseurs
       </button>
+      <button class="nav-item" data-page="costs" data-title="Coûts des SMS de test">
+        <span class="nav-icon">€</span>Coûts
+      </button>
       <button class="nav-item" data-page="config" data-title="Configuration">
         <span class="nav-icon" id="navConfigIcon">🔒</span>Configuration
       </button>
@@ -869,6 +872,63 @@
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" data-page="costs" hidden>
+        <div class="config-card" id="costsLockCard" style="display:none;">
+          <p style="margin:0; font-size:13px; color:var(--text-dim);">
+            Connecte-toi d'abord depuis la page <strong>Configuration</strong> (clé admin) pour consulter les coûts.
+          </p>
+        </div>
+
+        <div id="costsPanel" style="display:none;">
+          <section>
+            <div class="section-head"><h2>Coûts par période et par pays</h2></div>
+            <div class="dim-tabs" id="costsGranTabs">
+              <button class="dim-tab" data-gran="hour">Par heure</button>
+              <button class="dim-tab active" data-gran="day">Par jour</button>
+              <button class="dim-tab" data-gran="month">Par mois</button>
+            </div>
+            <div style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px; font-size:12.5px; color:var(--text-dim);">
+              <label><input type="checkbox" id="costsIncludeManual" checked /> Inclure les tests manuels</label>
+              <label><input type="checkbox" id="costsIncludeTestsms" checked /> Inclure les tests fournisseurs (TestSMS)</label>
+              <span id="costsWindowLabel" style="color:var(--text-faint);"></span>
+            </div>
+            <div class="kpi-row" id="costsKpiRow"></div>
+            <div class="table-card">
+              <div style="overflow-x:auto;">
+                <table>
+                  <thead id="costsStatsHead"></thead>
+                  <tbody id="costsStatsBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="costsUnpricedNote" class="config-msg" style="display:none; color:var(--warn);"></div>
+          </section>
+
+          <div class="config-card">
+            <div class="section-head" style="margin-bottom:10px;"><h2>Tarifs unitaires par pays (EUR / SMS)</h2></div>
+            <p style="margin:0 0 12px; font-size:12px; color:var(--text-dim);">
+              Le coût affiché ci-dessus est calculé à la lecture : nombre de SMS envoyés × tarif actuel du pays.
+              Modifier un tarif recalcule donc aussi les périodes passées. Un pays sans tarif est compté mais son coût reste inconnu.
+            </p>
+            <div class="table-card">
+              <table>
+                <thead><tr><th>Code</th><th>Pays</th><th>Coût unitaire (EUR)</th><th></th></tr></thead>
+                <tbody id="costsRatesBody"></tbody>
+              </table>
+            </div>
+            <div class="form-grid" style="margin-top:16px;">
+              <div><label>Code pays (2 lettres)</label><input id="newCostCode" placeholder="GB" maxlength="2" /></div>
+              <div><label>Nom du pays</label><input id="newCostName" placeholder="Royaume-Uni" /></div>
+              <div><label>Coût unitaire (EUR)</label><input id="newCostValue" placeholder="0.0450" inputmode="decimal" /></div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" id="newCostBtn" type="button">Ajouter le pays</button>
+              <span id="costsRatesMsg" class="config-msg"></span>
             </div>
           </div>
         </div>
@@ -1542,10 +1602,11 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 
     // Le sélecteur de période et l'export CSV n'ont pas de sens sur ces pages
     document.getElementById('topbarControls').style.display =
-      (page === 'config' || page === 'manual' || page === 'testsms') ? 'none' : 'flex';
+      (page === 'config' || page === 'manual' || page === 'testsms' || page === 'costs') ? 'none' : 'flex';
 
     if (page === 'manual') loadManualPage();
     if (page === 'testsms') loadTestsmsPage();
+    if (page === 'costs') loadCostsPage();
     syncMainWidth();
   });
 });
@@ -3095,6 +3156,182 @@ async function loadTestsmsHistory() {
     }
   }
 }
+
+// ---------- Page "Coûts" (statistiques de coût des SMS de test) ----------
+// Tarifs saisis à la main par pays (table sms_costs) ; le coût d'une période
+// = nombre de SMS envoyés × tarif ACTUEL du pays (voir routes/costs-api.js).
+
+let costsGranularity = 'day';
+
+function showCostsLock() {
+  document.getElementById('costsPanel').style.display = 'none';
+  document.getElementById('costsLockCard').style.display = 'block';
+}
+function showCostsPanel() {
+  document.getElementById('costsLockCard').style.display = 'none';
+  document.getElementById('costsPanel').style.display = 'block';
+}
+
+// 4 décimales max : un SMS coûte typiquement quelques centimes, un arrondi à
+// 2 décimales écraserait l'écart entre deux tarifs (0,045 vs 0,05).
+function fmtEur(x) {
+  if (x == null) return '—';
+  return x.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
+// Clés renvoyées par l'API : "YYYY-MM-DD HH:00" | "YYYY-MM-DD" | "YYYY-MM".
+function fmtCostPeriod(key, gran) {
+  if (gran === 'month') {
+    const [y, m] = key.split('-');
+    return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  }
+  const [date, time] = key.split(' ');
+  const [y, m, d] = date.split('-');
+  return gran === 'hour' ? `${d}/${m}/${y} ${time.slice(0, 2)}h` : `${d}/${m}/${y}`;
+}
+
+async function loadCostsPage() {
+  if (!getAdminKey()) { showCostsLock(); return; }
+  try {
+    await Promise.all([loadCostsStats(), loadCostsRates()]);
+    showCostsPanel();
+  } catch (e) {
+    showCostsLock();
+  }
+}
+
+async function loadCostsStats() {
+  const manual = document.getElementById('costsIncludeManual').checked ? 1 : 0;
+  const testsms = document.getElementById('costsIncludeTestsms').checked ? 1 : 0;
+  const res = await adminFetch(`/api/costs/stats?granularity=${costsGranularity}&includeManual=${manual}&includeTestsms=${testsms}`);
+  const data = await res.json();
+  renderCostsStats(data);
+}
+
+function renderCostsStats(data) {
+  document.getElementById('costsWindowLabel').textContent = `Fenêtre : ${data.windowLabel} (heure de ${data.timezone})`;
+
+  const unpriced = data.unpricedCount;
+  document.getElementById('costsKpiRow').innerHTML = [
+    kpiCard('Coût total', fmtEur(data.totals.cost), unpriced ? 'warn' : '', unpriced ? `hors ${unpriced} SMS sans tarif` : data.windowLabel),
+    kpiCard('SMS envoyés', data.totals.count.toLocaleString('fr-FR'), '', data.windowLabel),
+  ].join('');
+
+  const note = document.getElementById('costsUnpricedNote');
+  if (unpriced) {
+    note.style.display = 'block';
+    note.textContent = `⚠ ${unpriced} SMS sont comptés mais sans tarif (pays non renseigné ou inconnu) : leur coût n'est pas inclus dans les totaux.`;
+  } else {
+    note.style.display = 'none';
+  }
+
+  // Une colonne par pays ayant au moins un SMS sur la fenêtre, plus les pays
+  // tarifés même sans trafic pour garder des colonnes stables d'une période
+  // à l'autre.
+  const cols = data.countries;
+  const head = document.getElementById('costsStatsHead');
+  head.innerHTML = `<tr><th>Période</th>${cols.map(c => `<th title="${escapeAttr(c.name)}">${escapeAttr(c.code === '?' ? '?' : c.code)}</th>`).join('')}<th>Total</th></tr>`;
+
+  const body = document.getElementById('costsStatsBody');
+  const cellHtml = (cell, unitCost) => {
+    if (!cell || !cell.count) return '<span style="color:var(--text-faint);">—</span>';
+    const cost = unitCost == null ? '<span style="color:var(--warn);" title="Tarif non renseigné">? €</span>' : fmtEur(cell.cost);
+    return `${cost} <span style="color:var(--text-faint);">· ${cell.count}</span>`;
+  };
+
+  if (!data.rows.length) {
+    body.innerHTML = `<tr><td colspan="${cols.length + 2}" class="empty-state">Aucun SMS envoyé sur cette période.</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = data.rows.map(r => `<tr>
+    <td class="mono">${escapeAttr(fmtCostPeriod(r.period, data.granularity))}</td>
+    ${cols.map(c => `<td class="mono">${cellHtml(r.byCountry[c.code], c.unitCost)}</td>`).join('')}
+    <td class="mono"><strong>${fmtEur(r.totalCost)}</strong> <span style="color:var(--text-faint);">· ${r.totalCount}</span></td>
+  </tr>`).join('') + `<tr style="border-top:2px solid var(--line);">
+    <td><strong>Total</strong></td>
+    ${cols.map(c => `<td class="mono"><strong>${cellHtml(data.totals.byCountry[c.code], c.unitCost)}</strong></td>`).join('')}
+    <td class="mono"><strong>${fmtEur(data.totals.cost)}</strong> <span style="color:var(--text-faint);">· ${data.totals.count}</span></td>
+  </tr>`;
+}
+
+async function loadCostsRates() {
+  const res = await adminFetch('/api/costs/rates');
+  const rates = await res.json();
+  const body = document.getElementById('costsRatesBody');
+  if (!rates.length) {
+    body.innerHTML = `<tr><td colspan="4" class="empty-state">Aucun pays. Ajoute-en un ci-dessous.</td></tr>`;
+    return;
+  }
+  body.innerHTML = rates.map(r => `<tr data-code="${escapeAttr(r.country_code)}">
+    <td class="mono">${escapeAttr(r.country_code)}</td>
+    <td>${escapeAttr(r.country_name)}</td>
+    <td><input class="cost-rate-input" type="text" inputmode="decimal" style="width:150px;" value="${r.unit_cost == null ? '' : r.unit_cost}" placeholder="non renseigné" /></td>
+    <td>
+      <button class="btn btn-sm btn-primary cost-save-btn" type="button">Enregistrer</button>
+      <button class="btn btn-sm cost-delete-btn" type="button">Supprimer</button>
+    </td>
+  </tr>`).join('');
+
+  body.querySelectorAll('.cost-save-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const tr = btn.closest('tr');
+    const value = tr.querySelector('.cost-rate-input').value.trim();
+    await saveCostRate(tr.dataset.code, value);
+  }));
+  body.querySelectorAll('.cost-delete-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const tr = btn.closest('tr');
+    if (!confirm(`Supprimer le pays ${tr.dataset.code} de la table des tarifs ?`)) return;
+    try {
+      const res = await adminFetch(`/api/costs/rates/${encodeURIComponent(tr.dataset.code)}`, { method: 'DELETE' });
+      setCostsRatesMsg(res.ok ? `Pays ${tr.dataset.code} supprimé.` : 'Suppression impossible.', res.ok);
+      if (res.ok) await Promise.all([loadCostsRates(), loadCostsStats()]);
+    } catch (e) { if (e.message !== 'admin_unauthorized') setCostsRatesMsg('Erreur réseau.', false); }
+  }));
+}
+
+function setCostsRatesMsg(msg, ok) {
+  const el = document.getElementById('costsRatesMsg');
+  el.textContent = msg;
+  el.className = 'config-msg ' + (ok ? 'ok' : 'err');
+}
+
+async function saveCostRate(code, value) {
+  try {
+    const res = await adminFetch(`/api/costs/rates/${encodeURIComponent(code)}`, {
+      method: 'PUT', body: JSON.stringify({ unitCost: value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { setCostsRatesMsg(data.error || 'Enregistrement impossible.', false); return; }
+    setCostsRatesMsg(`Tarif ${code} enregistré.`, true);
+    await Promise.all([loadCostsRates(), loadCostsStats()]);
+  } catch (e) { if (e.message !== 'admin_unauthorized') setCostsRatesMsg('Erreur réseau.', false); }
+}
+
+document.getElementById('newCostBtn').addEventListener('click', async () => {
+  const countryCode = document.getElementById('newCostCode').value.trim();
+  const countryName = document.getElementById('newCostName').value.trim();
+  const unitCost = document.getElementById('newCostValue').value.trim();
+  try {
+    const res = await adminFetch('/api/costs/rates', { method: 'POST', body: JSON.stringify({ countryCode, countryName, unitCost }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { setCostsRatesMsg(data.error || 'Ajout impossible.', false); return; }
+    ['newCostCode', 'newCostName', 'newCostValue'].forEach(id => { document.getElementById(id).value = ''; });
+    setCostsRatesMsg(`Pays ${data.country_code} ajouté.`, true);
+    await Promise.all([loadCostsRates(), loadCostsStats()]);
+  } catch (e) { if (e.message !== 'admin_unauthorized') setCostsRatesMsg('Erreur réseau.', false); }
+});
+
+document.querySelectorAll('#costsGranTabs .dim-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#costsGranTabs .dim-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    costsGranularity = btn.dataset.gran;
+    loadCostsStats().catch(() => {});
+  });
+});
+['costsIncludeManual', 'costsIncludeTestsms'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => loadCostsStats().catch(() => {}));
+});
 
 async function refreshAll() {
   const hours = parseInt(document.getElementById('rangeSelect').value, 10);
