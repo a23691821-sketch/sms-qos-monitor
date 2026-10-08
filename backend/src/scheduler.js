@@ -16,8 +16,16 @@ const TIMEOUT_MINUTES = parseInt(process.env.TIMEOUT_MINUTES || "15", 10);
 // routes actives au tick suivant, même si l'intervalle réel n'est pas
 // écoulé. Ce bug a provoqué une rafale de tests en double lors des multiples
 // redémarrages du service pendant un déploiement (observé le 01/10).
+//
+// Seuls les tests du cycle AUTOMATIQUE comptent ici : un test lancé à la main
+// depuis "Test manuel" ne doit pas repousser le prochain test planifié. Sinon,
+// quelqu'un qui enchaîne des tests manuels plus souvent que l'intervalle de
+// la route (ex. toutes les 16 min pour une route à 30 min) empêche le cycle
+// automatique de repartir, sans aucune erreur visible (observé le 08/10).
 function lastRouteRunAt(routeId) {
-  const row = db.prepare(`SELECT MAX(sent_at) as last FROM test_messages WHERE route_id = ?`).get(routeId);
+  const row = db
+    .prepare(`SELECT MAX(sent_at) as last FROM test_messages WHERE route_id = ? AND trigger_type = 'scheduled'`)
+    .get(routeId);
   return row && row.last ? new Date(row.last).getTime() : 0;
 }
 function lastTestSmsScheduleRunAt(scheduleId) {
