@@ -550,6 +550,13 @@
       <div class="page" data-page="overview">
         <div id="alertsBox"></div>
 
+        <div class="dim-tabs trigger-filter-tabs" style="align-items:center;">
+          <span style="font-size:12px; color:var(--text-faint); margin-right:4px;">Envois :</span>
+          <button class="dim-tab active" data-trigger="all">Tous</button>
+          <button class="dim-tab" data-trigger="scheduled" title="Tests du cycle planifié">Automatiques</button>
+          <button class="dim-tab" data-trigger="manual" title="Tests lancés à la main depuis « Test manuel »">Manuels</button>
+        </div>
+
         <div class="kpi-row" id="kpiRow"></div>
 
         <div class="charts-grid">
@@ -592,6 +599,12 @@
       </div>
 
       <div class="page" data-page="routes" hidden>
+        <div class="dim-tabs trigger-filter-tabs" style="align-items:center;">
+          <span style="font-size:12px; color:var(--text-faint); margin-right:4px;">Envois :</span>
+          <button class="dim-tab active" data-trigger="all">Tous</button>
+          <button class="dim-tab" data-trigger="scheduled" title="Tests du cycle planifié">Automatiques</button>
+          <button class="dim-tab" data-trigger="manual" title="Tests lancés à la main depuis « Test manuel »">Manuels</button>
+        </div>
         <section>
           <div class="section-head"><h2>Par pays / opérateur</h2></div>
           <div class="dim-tabs" id="dimTabsRoutes">
@@ -1423,8 +1436,26 @@ function renderLineChart(containerId, labels, points, opts) {
     </svg>`;
 }
 
+// Filtre "Envois" partagé entre la Vue d'ensemble et "Routes & pays" :
+// 'all' | 'scheduled' (automatiques) | 'manual' (lancés depuis "Test manuel").
+// Un seul état pour les deux pages, pour qu'aucune ne soit filtrée sans que
+// ça se voie (les deux affichent les mêmes onglets, synchronisés).
+let currentTriggerFilter = 'all';
+function triggerQS() {
+  return currentTriggerFilter === 'all' ? '' : `&triggerType=${currentTriggerFilter}`;
+}
+
+document.querySelectorAll('.trigger-filter-tabs .dim-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentTriggerFilter = btn.dataset.trigger;
+    document.querySelectorAll('.trigger-filter-tabs .dim-tab').forEach(b =>
+      b.classList.toggle('active', b.dataset.trigger === currentTriggerFilter));
+    refreshAll();
+  });
+});
+
 async function loadOverview(hours) {
-  const res = await sessionFetch(`${API}/api/stats/overview?sinceHours=${hours}`);
+  const res = await sessionFetch(`${API}/api/stats/overview?sinceHours=${hours}${triggerQS()}`);
   const data = await res.json();
   renderKpis(data.totals);
   renderRoutesTable(data.byRoute);
@@ -1442,7 +1473,11 @@ function renderKpis(t) {
   const rate = t.deliveryRate;
   const rateCls = rate == null ? '' : rate >= 0.95 ? 'good' : rate >= 0.8 ? 'warn' : 'bad';
   document.getElementById('kpiRow').innerHTML = [
-    kpiCard('Tests envoyés', t.total ?? 0, '', t.testsPerHour != null ? `${t.testsPerHour.toFixed(1)} / h` : ''),
+    kpiCard('Tests envoyés', t.total ?? 0, '', [
+      t.testsPerHour != null ? `${t.testsPerHour.toFixed(1)} / h` : '',
+      // Répartition visible seulement sans filtre (avec un filtre, tout est du même type)
+      currentTriggerFilter === 'all' ? `${t.scheduledCount ?? 0} auto · ${t.manualCount ?? 0} manuels` : '',
+    ].filter(Boolean).join(' · ')),
     kpiCard('Taux de délivrance', fmtPct(rate), rateCls),
     kpiCard('Latence moyenne', fmtMs(t.avgLatencyMs), '', 'Envoi → réception réelle'),
     kpiCard('Latence P95', fmtMs(t.p95LatencyMs), '', t.p99LatencyMs != null ? `P99: ${fmtMs(t.p99LatencyMs)}` : ''),
@@ -1544,7 +1579,7 @@ async function loadAlerts() {
 }
 
 async function loadByDimension(hours) {
-  const res = await sessionFetch(`${API}/api/stats/by-dimension?dimension=${currentDimension}&sinceHours=${hours}`);
+  const res = await sessionFetch(`${API}/api/stats/by-dimension?dimension=${currentDimension}&sinceHours=${hours}${triggerQS()}`);
   const data = await res.json();
   document.getElementById('dimHeader').textContent = currentDimension === 'country' ? 'Pays' : 'Opérateur';
   const body = document.getElementById('dimBody');
@@ -1692,7 +1727,7 @@ function buildBucketGrid(hours, bucketMinutes) {
 
 async function loadTimeseries(hours) {
   const bucketMinutes = await getBucketMinutes(hours);
-  const res = await sessionFetch(`${API}/api/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutes}`);
+  const res = await sessionFetch(`${API}/api/stats/timeseries?sinceHours=${hours}&bucketMinutes=${bucketMinutes}${triggerQS()}`);
   const rows = await res.json();
 
   // Le backend renvoie une ligne par (bucket temporel, opérateur) — "__all__"
@@ -1744,7 +1779,7 @@ async function loadTimeseries(hours) {
 // "Par pays / opérateur" de la page Routes) pour donner un résumé agrégé par
 // opérateur directement sur la Vue d'ensemble, sans naviguer ailleurs.
 async function loadOperatorSummary(hours) {
-  const res = await sessionFetch(`${API}/api/stats/by-dimension?dimension=operator&sinceHours=${hours}`);
+  const res = await sessionFetch(`${API}/api/stats/by-dimension?dimension=operator&sinceHours=${hours}${triggerQS()}`);
   const data = await res.json();
   const body = document.getElementById('operatorSummaryBody');
   if (!data.groups.length) {
@@ -3336,7 +3371,7 @@ document.querySelectorAll('#costsGranTabs .dim-tab').forEach(btn => {
 async function refreshAll() {
   const hours = parseInt(document.getElementById('rangeSelect').value, 10);
   await Promise.all([loadOverview(hours), loadTimeseries(hours), loadRecent(), loadAlerts(), loadByDimension(hours), loadOperatorSummary(hours)]);
-  document.getElementById('exportBtn').href = `${API}/api/export/csv?sinceHours=${hours}`;
+  document.getElementById('exportBtn').href = `${API}/api/export/csv?sinceHours=${hours}${triggerQS()}`;
   document.getElementById('lastUpdated').textContent = 'mis à jour ' + new Date().toLocaleTimeString('fr-FR');
 }
 

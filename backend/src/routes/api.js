@@ -17,6 +17,16 @@ function percentile(values, p) {
   return sorted[Math.max(0, idx)];
 }
 
+// Filtre optionnel ?triggerType=scheduled|manual : isole les tests automatiques
+// du cycle planifié des tests lancés à la main (même table, même colonne
+// trigger_type). Sans valeur reconnue = pas de filtre (les deux, comme avant).
+// Renvoie un fragment SQL à ajouter à un WHERE existant + ses paramètres.
+function triggerFilter(req, column = "t.trigger_type") {
+  const v = req.query.triggerType;
+  if (v === "scheduled" || v === "manual") return { sql: ` AND ${column} = ?`, params: [v] };
+  return { sql: "", params: [] };
+}
+
 function aggregate(rows) {
   const delivered = rows.filter((r) => r.final_status === "delivered");
   const latencies = delivered.map((r) => r.latency_ms).filter((v) => v != null);
@@ -32,6 +42,10 @@ function aggregate(rows) {
 
   return {
     total: rows.length,
+    // Répartition automatique / manuel, pour pouvoir les distinguer d'un coup
+    // d'oeil même quand aucun filtre n'est actif.
+    manualCount: rows.filter((r) => r.trigger_type === "manual").length,
+    scheduledCount: rows.filter((r) => r.trigger_type !== "manual").length,
     delivered: delivered.length,
     timeout: rows.filter((r) => r.final_status === "timeout").length,
     failed: rows.filter((r) => r.final_status === "failed").length,
@@ -321,14 +335,15 @@ router.get("/tests/export/csv", (req, res) => {
 router.get("/stats/overview", (req, res) => {
   const sinceHours = parseInt(req.query.sinceHours || "24", 10);
   const since = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
+  const tf = triggerFilter(req);
 
   const rows = db
     .prepare(`
       SELECT t.*, r.id as route_id, r.name as route_name, r.provider_id, r.country, r.operator
       FROM test_messages t JOIN routes r ON r.id = t.route_id
-      WHERE t.sent_at >= ?
+      WHERE t.sent_at >= ?${tf.sql}
     `)
-    .all(since);
+    .all(since, ...tf.params);
 
   const totals = aggregate(rows);
   totals.testsPerHour = sinceHours ? totals.total / sinceHours : null;
@@ -374,14 +389,15 @@ router.get("/stats/by-dimension", (req, res) => {
   const sinceHours = parseInt(req.query.sinceHours || "24", 10);
   const dimension = req.query.dimension === "operator" ? "operator" : "country";
   const since = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
+  const tf = triggerFilter(req);
 
   const rows = db
     .prepare(`
       SELECT t.*, r.country, r.operator
       FROM test_messages t JOIN routes r ON r.id = t.route_id
-      WHERE t.sent_at >= ?
+      WHERE t.sent_at >= ?${tf.sql}
     `)
-    .all(since);
+    .all(since, ...tf.params);
 
   const groups = new Map();
   for (const row of rows) {
@@ -401,22 +417,23 @@ router.get("/stats/by-dimension", (req, res) => {
 router.get("/export/csv", (req, res) => {
   const sinceHours = parseInt(req.query.sinceHours || "24", 10);
   const since = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
+  const tf = triggerFilter(req);
 
   const rows = db
     .prepare(`
       SELECT t.id, t.code, t.sent_at, t.final_status, t.provider_status, t.dlr_status,
              t.latency_ms, t.dlr_latency_ms, t.received_from_number,
-             r.name as route_name, r.provider_id, r.country, r.operator
+             r.name as route_name, r.provider_id, r.country, r.operator, t.trigger_type
       FROM test_messages t JOIN routes r ON r.id = t.route_id
-      WHERE t.sent_at >= ?
+      WHERE t.sent_at >= ?${tf.sql}
       ORDER BY t.sent_at DESC
     `)
-    .all(since);
+    .all(since, ...tf.params);
 
   const headers = [
     "id", "code", "sent_at", "final_status", "provider_status", "dlr_status",
     "latency_ms", "dlr_latency_ms", "received_from_number",
-    "route_name", "provider_id", "country", "operator",
+    "route_name", "provider_id", "country", "operator", "trigger_type",
   ];
   const escapeCsv = (v) => {
     if (v == null) return "";
@@ -468,16 +485,17 @@ router.get("/stats/timeseries", (req, res) => {
   const sinceHours = parseInt(req.query.sinceHours || "24", 10);
   const bucketMinutes = parseInt(req.query.bucketMinutes || "60", 10);
   const since = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
+  const tf = triggerFilter(req);
 
   // Bucketing simple fait en JS pour rester lisible et indépendant du moteur SQL
   const rows = db
     .prepare(`
       SELECT t.sent_at, t.final_status, t.latency_ms, t.dlr_latency_ms, r.operator
       FROM test_messages t JOIN routes r ON r.id = t.route_id
-      WHERE t.sent_at >= ?
+      WHERE t.sent_at >= ?${tf.sql}
       ORDER BY t.sent_at
     `)
-    .all(since);
+    .all(since, ...tf.params);
 
   // Une entrée par (bucket temporel, opérateur) : la clé "__all__" cumule
   // tous les opérateurs pour garder la courbe globale historique.
