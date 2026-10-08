@@ -109,6 +109,13 @@ object ApiClient {
         }
 
         val json = JSONObject().apply { put("apiKey", apiKey) }
+        // Etat du téléphone + boîte de réception SMS (voir DeviceStatus) : ne
+        // doit jamais faire échouer le heartbeat lui-même.
+        try {
+            DeviceStatus.addTo(context, json)
+        } catch (e: Exception) {
+            Log.w(TAG, "Etat du téléphone non joint au heartbeat: ${e.message}")
+        }
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val request = Request.Builder()
             .url("$backendUrl/api/webhook/heartbeat")

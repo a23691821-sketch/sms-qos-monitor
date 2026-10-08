@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const db = require("./../db");
 const { runTestForRoute, isPaused, setPaused } = require("./../scheduler");
 const { loadProviderConfigs } = require("./../providers");
-const { buildTestMessageBody } = require("./../idgen");
+const { buildTestMessageBody, extractCode } = require("./../idgen");
 const { hashPassword } = require("./../password");
 
 const router = express.Router();
@@ -91,7 +91,20 @@ router.post("/devices", requireAdmin, (req, res) => {
 // Inclut api_key : endpoint protégé par la clé admin, nécessaire pour ré-afficher
 // la clé de pairage d'un appareil déjà créé (ex: réinstallation de l'app).
 router.get("/devices", requireAdmin, (req, res) => {
-  res.json(db.prepare(`SELECT id, name, phone_number, api_key, last_seen_at, last_heartbeat_at, created_at FROM devices`).all());
+  res.json(db.prepare(`SELECT id, name, phone_number, api_key, last_seen_at, last_heartbeat_at, created_at, app_version, battery_level, battery_charging, battery_exempt, doze_mode, network_type FROM devices`).all());
+});
+
+// Boîte de réception SMS du téléphone, telle que remontée par l'app avec son
+// heartbeat (équivalent de l'app Messages, en lecture seule). Réservé admin.
+// ?limit=1..200 (défaut 50). Le champ `qos` signale les SMS de test QoS.
+router.get("/devices/:id/inbox", requireAdmin, (req, res) => {
+  const device = db.prepare(`SELECT id FROM devices WHERE id = ?`).get(req.params.id);
+  if (!device) return res.status(404).json({ error: "appareil introuvable" });
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit || "50", 10) || 50, 200));
+  const rows = db
+    .prepare(`SELECT sms_at, address, body, synced_at FROM device_inbox WHERE device_id = ? ORDER BY sms_at DESC, id DESC LIMIT ?`)
+    .all(device.id, limit);
+  res.json(rows.map((r) => ({ ...r, qos: !!extractCode(r.body || "") })));
 });
 
 // Renomme un appareil et/ou corrige son numéro (jamais la clé API, qui ne

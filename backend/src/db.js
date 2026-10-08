@@ -187,6 +187,44 @@ if (!devicesColumns.includes("last_heartbeat_at")) {
   db.exec("ALTER TABLE devices ADD COLUMN last_heartbeat_at TEXT");
 }
 
+// Etat détaillé remonté par le heartbeat de l'app (APK 04.2+) : permet de
+// diagnostiquer un téléphone à distance (batterie, exemption d'optimisation,
+// Doze, réseau) sans devoir le consulter physiquement.
+for (const [col, type] of [
+  ["app_version", "TEXT"],
+  ["battery_level", "INTEGER"],
+  ["battery_charging", "INTEGER"],
+  ["battery_exempt", "INTEGER"],
+  ["doze_mode", "INTEGER"],
+  ["network_type", "TEXT"],
+]) {
+  if (!devicesColumns.includes(col)) db.exec(`ALTER TABLE devices ADD COLUMN ${col} ${type}`);
+}
+
+// Instant où le serveur a reçu le rapport de l'app, à comparer à received_at
+// (horloge du téléphone au moment où le SMS est arrivé) : l'écart mesure le
+// retard de REMONTÉE (Android qui endort l'app), distinct du retard de
+// livraison de l'opérateur.
+if (!testMessageColumns.includes("reported_at")) {
+  db.exec("ALTER TABLE test_messages ADD COLUMN reported_at TEXT");
+}
+
+// Copie de la boîte de réception SMS du téléphone (lue par l'app avec
+// READ_SMS, envoyée avec le heartbeat) : équivalent d'ouvrir l'app Messages
+// à distance. Lecture réservée à l'admin.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS device_inbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL,
+    sms_at TEXT NOT NULL,
+    address TEXT,
+    body TEXT,
+    synced_at TEXT NOT NULL,
+    UNIQUE (device_id, sms_at, address, body)
+  );
+  CREATE INDEX IF NOT EXISTS idx_device_inbox_device_time ON device_inbox (device_id, sms_at DESC);
+`);
+
 // "Pays entier" : une planification/un test peut désormais cibler TOUS les
 // opérateurs natifs d'un pays TestSMS en une fois, plutôt qu'un seul
 // mccmnc choisi à l'avance. Pour une planification en mode pays, on ne

@@ -7,6 +7,7 @@ import androidx.work.Constraints
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.ExistingPeriodicWorkPolicy
 import java.util.concurrent.TimeUnit
 
@@ -34,6 +35,16 @@ class HeartbeatWorker(context: Context, params: WorkerParameters) : Worker(conte
 
     companion object {
         private const val WORK_NAME = "sms_qos_heartbeat"
+
+        // Heartbeat immédiat (en plus du cycle de 15 min) : appelé à l'ouverture
+        // de l'app pour que le dashboard reflète tout de suite l'état du
+        // téléphone et sa boîte de réception, sans attendre le prochain cycle.
+        fun runNow(context: Context) {
+            val request = OneTimeWorkRequestBuilder<HeartbeatWorker>()
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
+            WorkManager.getInstance(context).enqueue(request)
+        }
 
         // Enqueue idempotent : rappelable à chaque démarrage de l'app ou du
         // téléphone sans dupliquer le travail planifié (KEEP = ne remplace pas

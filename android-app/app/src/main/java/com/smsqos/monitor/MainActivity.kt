@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity() {
             requestPermissionsIfNeeded()
             requestBatteryOptimizationExemptionIfNeeded()
             HeartbeatWorker.schedule(this)
+            HeartbeatWorker.runNow(this)
             updateStatus()
         }
 
@@ -62,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         // configuré (le Worker se contente alors de ne rien faire, voir
         // HeartbeatWorker.doWork).
         HeartbeatWorker.schedule(this)
+        HeartbeatWorker.runNow(this)
         updateStatus()
     }
 

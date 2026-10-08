@@ -502,6 +502,9 @@
       <button class="nav-item" data-page="testsms" data-title="Tests fournisseurs (TestSMS)">
         <span class="nav-icon">⇄</span>Tests fournisseurs
       </button>
+      <button class="nav-item" data-page="phones" data-title="Téléphones de test">
+        <span class="nav-icon">☎</span>Téléphones
+      </button>
       <button class="nav-item" data-page="costs" data-title="Coûts des SMS de test">
         <span class="nav-icon">€</span>Coûts
       </button>
@@ -887,6 +890,56 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="page" data-page="phones" hidden>
+        <div class="config-card" id="phonesLockCard" style="display:none;">
+          <p style="margin:0; font-size:13px; color:var(--text-dim);">
+            Connecte-toi d'abord depuis la page <strong>Configuration</strong> (clé admin) pour consulter les téléphones.
+          </p>
+        </div>
+
+        <div id="phonesPanel" style="display:none;">
+          <section>
+            <div class="section-head">
+              <h2>État des téléphones</h2>
+              <button class="btn btn-sm" id="phonesRefreshBtn" type="button">Actualiser</button>
+            </div>
+            <div class="table-card">
+              <div style="overflow-x:auto;">
+                <table>
+                  <thead>
+                    <tr><th>Téléphone</th><th>App</th><th>Batterie</th><th>Optimisation batterie</th><th>Doze</th><th>Réseau</th><th>Dernier heartbeat</th></tr>
+                  </thead>
+                  <tbody id="phonesStatusBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <p style="margin:8px 0 0; font-size:12px; color:var(--text-faint);">
+              Ces données sont envoyées par l'app (version 04.2 ou plus) avec chaque heartbeat, soit toutes les ~15 min,
+              et immédiatement à chaque ouverture de l'app. « — » = app pas encore mise à jour.
+            </p>
+          </section>
+
+          <section style="margin-top:24px;">
+            <div class="section-head">
+              <h2>Messages reçus (boîte de réception)</h2>
+              <select id="phonesDeviceSelect"></select>
+            </div>
+            <div style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:12px; font-size:12.5px; color:var(--text-dim);">
+              <label><input type="checkbox" id="phonesQosOnly" /> Seulement les SMS de test QoS</label>
+              <span id="phonesInboxInfo" style="color:var(--text-faint);"></span>
+            </div>
+            <div class="table-card">
+              <div style="overflow-x:auto;">
+                <table>
+                  <thead><tr><th>Reçu le (horloge du téléphone)</th><th>Expéditeur</th><th>Message</th><th></th></tr></thead>
+                  <tbody id="phonesInboxBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -1637,11 +1690,12 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 
     // Le sélecteur de période et l'export CSV n'ont pas de sens sur ces pages
     document.getElementById('topbarControls').style.display =
-      (page === 'config' || page === 'manual' || page === 'testsms' || page === 'costs') ? 'none' : 'flex';
+      (page === 'config' || page === 'manual' || page === 'testsms' || page === 'costs' || page === 'phones') ? 'none' : 'flex';
 
     if (page === 'manual') loadManualPage();
     if (page === 'testsms') loadTestsmsPage();
     if (page === 'costs') loadCostsPage();
+    if (page === 'phones') loadPhonesPage();
     syncMainWidth();
   });
 });
@@ -3224,6 +3278,98 @@ function fmtCostPeriod(key, gran) {
   const [y, m, d] = date.split('-');
   return gran === 'hour' ? `${d}/${m}/${y} ${time.slice(0, 2)}h` : `${d}/${m}/${y}`;
 }
+
+// ---------- Page "Téléphones" : état à distance + boîte de réception ----------
+let phonesDevices = [];
+
+function showPhonesLock() {
+  document.getElementById('phonesPanel').style.display = 'none';
+  document.getElementById('phonesLockCard').style.display = 'block';
+}
+function showPhonesPanel() {
+  document.getElementById('phonesLockCard').style.display = 'none';
+  document.getElementById('phonesPanel').style.display = 'block';
+}
+
+function phoneBatteryLabel(d) {
+  if (d.battery_level == null) return '<span class="pill pending">—</span>';
+  const cls = d.battery_level >= 30 || d.battery_charging ? 'delivered' : d.battery_level >= 15 ? 'pending' : 'failed';
+  return `<span class="pill ${cls}">${d.battery_level}%${d.battery_charging ? ' ⚡' : ''}</span>`;
+}
+function phoneExemptLabel(d) {
+  if (d.battery_exempt == null) return '<span class="pill pending">—</span>';
+  return d.battery_exempt
+    ? '<span class="pill delivered" title="Android ne met pas l\'app en veille">✓ Exempté</span>'
+    : '<span class="pill failed" title="Android peut endormir l\'app : les SMS seront remontés en retard">✗ Non exempté</span>';
+}
+function phoneDozeLabel(d) {
+  if (d.doze_mode == null) return '<span class="pill pending">—</span>';
+  return d.doze_mode
+    ? '<span class="pill pending" title="Le téléphone était en veille profonde au dernier heartbeat">En veille</span>'
+    : '<span class="pill delivered">Éveillé</span>';
+}
+
+function renderPhonesStatus(devices) {
+  const body = document.getElementById('phonesStatusBody');
+  if (!devices.length) {
+    body.innerHTML = '<tr><td colspan="7" class="empty-state">Aucun appareil.</td></tr>';
+    return;
+  }
+  body.innerHTML = devices.map(d => `
+    <tr>
+      <td><strong>${escapeAttr(d.name)}</strong><div class="mono" style="color:var(--text-faint);">${escapeAttr(d.phone_number || '')}</div></td>
+      <td class="mono">${d.app_version ? escapeAttr(d.app_version) : '—'}</td>
+      <td>${phoneBatteryLabel(d)}</td>
+      <td>${phoneExemptLabel(d)}</td>
+      <td>${phoneDozeLabel(d)}</td>
+      <td class="mono">${d.network_type ? escapeAttr(d.network_type) : '—'}</td>
+      <td>${heartbeatStatusLabel(d.last_heartbeat_at)}<div class="mono" style="color:var(--text-faint);">${d.last_heartbeat_at ? fmtTime(d.last_heartbeat_at) : ''}</div></td>
+    </tr>`).join('');
+}
+
+async function loadPhonesInbox() {
+  const id = document.getElementById('phonesDeviceSelect').value;
+  const body = document.getElementById('phonesInboxBody');
+  if (!id) { body.innerHTML = '<tr><td colspan="4" class="empty-state">Aucun appareil.</td></tr>'; return; }
+  const res = await adminFetch(`/api/devices/${id}/inbox?limit=200`);
+  let rows = await res.json();
+  const qosOnly = document.getElementById('phonesQosOnly').checked;
+  if (qosOnly) rows = rows.filter(r => r.qos);
+  const dev = phonesDevices.find(d => String(d.id) === String(id));
+  document.getElementById('phonesInboxInfo').textContent = dev && dev.last_heartbeat_at
+    ? `Dernière synchro : ${fmtTime(dev.last_heartbeat_at)} — les SMS apparaissent au prochain heartbeat (≤ 15 min)`
+    : 'Aucune synchro reçue (app pas encore en version 04.2 ?)';
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty-state">Aucun message.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => `
+    <tr>
+      <td class="mono">${fmtTime(r.sms_at)}</td>
+      <td class="mono">${escapeAttr(r.address || '')}</td>
+      <td style="white-space:pre-wrap; word-break:break-word;">${escapeAttr(r.body || '')}</td>
+      <td>${r.qos ? '<span class="pill delivered">Test QoS</span>' : ''}</td>
+    </tr>`).join('');
+}
+
+async function loadPhonesPage() {
+  if (!getAdminKey()) { showPhonesLock(); return; }
+  try {
+    phonesDevices = await adminFetch('/api/devices').then(r => r.json());
+    renderPhonesStatus(phonesDevices);
+    const sel = document.getElementById('phonesDeviceSelect');
+    const previous = sel.value;
+    sel.innerHTML = phonesDevices.map(d => `<option value="${d.id}">${escapeAttr(d.name)}</option>`).join('');
+    if (previous && phonesDevices.some(d => String(d.id) === previous)) sel.value = previous;
+    await loadPhonesInbox();
+    showPhonesPanel();
+  } catch (e) {
+    showPhonesLock();
+  }
+}
+document.getElementById('phonesRefreshBtn').addEventListener('click', () => loadPhonesPage());
+document.getElementById('phonesDeviceSelect').addEventListener('change', () => loadPhonesInbox().catch(() => showPhonesLock()));
+document.getElementById('phonesQosOnly').addEventListener('change', () => loadPhonesInbox().catch(() => showPhonesLock()));
 
 async function loadCostsPage() {
   if (!getAdminKey()) { showCostsLock(); return; }

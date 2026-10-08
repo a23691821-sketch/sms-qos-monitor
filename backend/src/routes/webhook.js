@@ -40,24 +40,75 @@ router.post("/sms-received", (req, res) => {
 
   db.prepare(`
     UPDATE test_messages
-    SET received_at = ?, received_from_number = ?, received_body = ?, latency_ms = ?, final_status = 'delivered'
+    SET received_at = ?, received_from_number = ?, received_body = ?, latency_ms = ?, final_status = 'delivered', reported_at = ?
     WHERE id = ?
-  `).run(receivedTs, from || null, body, latencyMs, testMsg.id);
+  `).run(receivedTs, from || null, body, latencyMs, new Date().toISOString(), testMsg.id);
 
   res.json({ matched: true, code, latencyMs });
 });
 
 // Heartbeat périodique envoyé par l'app Android (indépendamment de toute
 // réception de SMS), pour savoir si le téléphone/l'app est vivant même sans
-// trafic de test en cours. Body attendu: { apiKey }
+// trafic de test en cours. Body: { apiKey } + (APK 04.2+, tout optionnel)
+// { appVersion, batteryLevel, batteryCharging, batteryExempt, dozeMode,
+//   networkType, inbox: [{ at (ISO), from, body }] }
+const INBOX_KEEP_PER_DEVICE = 200;
+const toIntBool = (v) => (v === true || v === 1 ? 1 : v === false || v === 0 ? 0 : null);
+
 router.post("/heartbeat", (req, res) => {
-  const { apiKey } = req.body || {};
+  const { apiKey, appVersion, batteryLevel, batteryCharging, batteryExempt, dozeMode, networkType, inbox } = req.body || {};
   if (!apiKey) return res.status(400).json({ error: "apiKey requis" });
 
   const device = db.prepare(`SELECT id FROM devices WHERE api_key = ?`).get(apiKey);
   if (!device) return res.status(401).json({ error: "apiKey invalide" });
 
-  db.prepare(`UPDATE devices SET last_heartbeat_at = ? WHERE id = ?`).run(new Date().toISOString(), device.id);
+  const now = new Date().toISOString();
+  const level = Number.isFinite(batteryLevel) ? Math.max(0, Math.min(100, Math.round(batteryLevel))) : null;
+  db.prepare(`
+    UPDATE devices SET
+      last_heartbeat_at = ?,
+      app_version = COALESCE(?, app_version),
+      battery_level = COALESCE(?, battery_level),
+      battery_charging = COALESCE(?, battery_charging),
+      battery_exempt = COALESCE(?, battery_exempt),
+      doze_mode = COALESCE(?, doze_mode),
+      network_type = COALESCE(?, network_type)
+    WHERE id = ?
+  `).run(
+    now,
+    typeof appVersion === "string" ? appVersion.slice(0, 32) : null,
+    level,
+    toIntBool(batteryCharging),
+    toIntBool(batteryExempt),
+    toIntBool(dozeMode),
+    typeof networkType === "string" ? networkType.slice(0, 32) : null,
+    device.id
+  );
+
+  if (Array.isArray(inbox) && inbox.length) {
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO device_inbox (device_id, sms_at, address, body, synced_at) VALUES (?, ?, ?, ?, ?)`
+    );
+    const save = db.transaction((items) => {
+      for (const m of items.slice(0, 100)) {
+        if (!m || typeof m.at !== "string" || isNaN(new Date(m.at).getTime())) continue;
+        insert.run(
+          device.id,
+          new Date(m.at).toISOString(),
+          typeof m.from === "string" ? m.from.slice(0, 64) : null,
+          typeof m.body === "string" ? m.body.slice(0, 1000) : "",
+          now
+        );
+      }
+      db.prepare(`
+        DELETE FROM device_inbox WHERE device_id = ? AND id NOT IN (
+          SELECT id FROM device_inbox WHERE device_id = ? ORDER BY sms_at DESC, id DESC LIMIT ?
+        )
+      `).run(device.id, device.id, INBOX_KEEP_PER_DEVICE);
+    });
+    save(inbox);
+  }
+
   res.json({ ok: true });
 });
 
